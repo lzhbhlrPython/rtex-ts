@@ -1,0 +1,61 @@
+{
+  "name": "rtex-ts",
+  "version": "0.1.0",
+  "description": "Experimental TypeScript incremental LuaLaTeX sessions for Node.js, derived from realtime-tex",
+  "type": "module",
+  "license": "MIT",
+  "author": "rtex-ts contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lzhbhlrPython/rtex-ts.git"
+  },
+  "homepage": "https://github.com/lzhbhlrPython/rtex-ts#readme",
+  "bugs": "https://github.com/lzhbhlrPython/rtex-ts/issues",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "rtex-ts": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "vendor/realtime-tex/tex",
+    "vendor/realtime-tex/LICENSE",
+    "docs",
+    "README.zh-CN.md",
+    "THIRD_PARTY_NOTICES.md",
+    "UPSTREAM.md",
+    "vendor/realtime-tex/manifest.json",
+    "AGENTS.md",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "test:tex": "npm run build && node --test test/tex.integration.mjs",
+    "prepack": "npm run build",
+    "test:pack": "npm run build && node test/pack.integration.mjs"
+  },
+  "keywords": [
+    "latex",
+    "luatex",
+    "lualatex",
+    "incremental",
+    "live-preview",
+    "typescript"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  }
+}
