@@ -9,3 +9,7 @@ artifacts/
 .DS_Store
 .ai-notes/
 docs/superpowers/
+
+build/
+.rtex-ts/
+website/dist/

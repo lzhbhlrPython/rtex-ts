@@ -1,6 +1,6 @@
 // Persistent LuaLaTeX driver/context handling derived from realtime-tex engine.rs.
 // The Node port uses JSON requests on stdin and a bounded binary response file on every OS.
-import { readFileSync, writeFileSync, existsSync, openSync, readSync, closeSync, copyFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, existsSync, openSync, readSync, closeSync, copyFileSync, mkdirSync, rm } from 'node:fs';
 import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import { decodeDisplayList } from './display-list.js';
@@ -82,5 +82,14 @@ export class LiveEngine {
     });
     this.serial = task.catch(() => {}); return task;
   }
-  close(): void { this.closed = true; if (this.child) { this.child.stdin?.end(); killTree(this.child); } }
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    const cleanup = () => rm(this.work, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }, () => {});
+    if (this.child) {
+      if (this.child.exitCode !== null || this.child.signalCode !== null) cleanup();
+      else this.child.once('close', cleanup);
+      this.child.stdin?.end(); killTree(this.child);
+    } else cleanup();
+  }
 }

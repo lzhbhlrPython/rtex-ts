@@ -77,3 +77,9 @@ The server closes the session when stdin closes. Stdout is JSON-lines only. It b
 Project paths and source symlink escapes are validated, and processes use argument arrays. These checks protect the host interface; they do not sandbox LuaLaTeX. Documents can execute Lua and read/write with the user's permissions. Use OS-level isolation for untrusted projects.
 
 Ship `dist/`, the vendored Lua/TeX support directory, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `UPSTREAM.md`, and the vendored license/manifest. Electron hosts should unpack the support files outside ASAR so LuaLaTeX can read them; keep Node capability behind preload/IPC and run the session off the renderer thread. Retain upstream attribution. No Rust binary, TeX distribution or fonts are included in the npm package.
+
+## Recovery and resource limits
+
+A background layout is installed atomically after its display lists, contexts and PDF are available. Failed compilations retain the previous valid layout. Export scratch directories are removed after success or failure; only one export per session runs at a time. Closed live engines release their work directories after their processes exit.
+
+CLI requests are limited to 8 MiB of UTF-8 bytes before a newline is received. Input consumption follows output backpressure without an unbounded request queue. Export runs asynchronously, so `status` and `quit` remain available; a second concurrent export is rejected.

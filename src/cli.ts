@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-import { createInterface } from 'node:readline';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { Session } from './session.js';
 import { Processes, findLuaLaTeX, SUPPORT_DIR } from './process.js';
+import { jsonLines } from './json-lines.js';
 
 const args = process.argv.slice(2), command = args.shift();
 const option = (name: string): string | undefined => { const index = args.indexOf('--' + name); if (index < 0) return undefined; const value = args[index + 1]; if (!value || value.startsWith('--')) throw new Error('Missing --' + name); return value; };
@@ -23,10 +23,11 @@ async function main(): Promise<void> {
   }
   const root = option('project'); if (!root) throw new Error('--project is required');
   const session = await Session.open({ projectRoot: root, mainFile: option('main') || 'main.tex', buildDir: option('build'), lualatex: option('lualatex') });
-  const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
-  let queued = 0, output = Promise.resolve(), input = Promise.resolve(), closed = false;
-  const close = () => { if (closed) return; closed = true; session.close(); lines.close(); process.stdin.destroy(); };
+  let queued = 0, output = Promise.resolve(), closed = false;
+  const exports = new Set<Promise<void>>();
+  const close = () => { if (closed) return; closed = true; session.close(); process.stdin.destroy(); };
   const send = (value: unknown) => {
+    if (closed) return;
     const line = JSON.stringify(value) + '\n'; queued += Buffer.byteLength(line);
     if (queued > 64 * 1024 * 1024) { close(); process.stderr.write('Host is not draining output\n'); process.exitCode = 1; return; }
     output = output.then(() => new Promise<void>((resolve, reject) => process.stdout.write(line, error => { queued -= Buffer.byteLength(line); error ? reject(error) : resolve(); }))).catch(error => { close(); process.stderr.write(String(error) + '\n'); });
@@ -34,10 +35,11 @@ async function main(): Promise<void> {
   session.on('event', send);
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, close);
   process.stdout.once('error', close);
-  lines.on('line', line => {
-    if (line.length > 8 * 1024 * 1024) { send({ reply: 'error', message: 'Request too large' }); close(); return; }
-    input = input.then(async () => {
-      if (closed || !line.trim()) return;
+  try {
+    // Read only as the consumer advances. There is no unbounded Promise request queue.
+    for await (const line of jsonLines(process.stdin)) {
+      if (closed) break;
+      if (!line.trim()) continue;
       let request: Record<string, unknown>;
       try {
         request = JSON.parse(line);
@@ -50,13 +52,26 @@ async function main(): Promise<void> {
           case 'spans': send({ reply: 'spans', id, spans: session.spans(file) }); break;
           case 'status': send({ reply: 'status', id, ...session.status() }); break;
           case 'request_layout': session.requestLayout(); send({ reply: 'request_layout', id }); break;
-          case 'export_pdf': if (typeof request.out !== 'string') throw new Error('out must be a string'); send({ reply: 'export_pdf', id, ...await session.exportPdf(request.out) }); break;
-          case 'quit': send({ reply: 'quit', id }); await output; close(); break;
+          case 'export_pdf': {
+            if (typeof request.out !== 'string') throw new Error('out must be a string');
+            if (exports.size) throw new Error('A PDF export is already running');
+            const task = session.exportPdf(request.out)
+              .then(result => send({ reply: 'export_pdf', id, ...result }))
+              .catch(error => send({ reply: 'error', id, message: String(error) }))
+              .finally(() => exports.delete(task));
+            exports.add(task); break;
+          }
+          case 'quit': send({ reply: 'quit', id }); await output; close(); return;
           default: throw new Error('Unknown command');
         }
       } catch (error) { send({ reply: 'error', message: String(error) }); }
-    });
-  });
-  lines.once('close', () => { void input.finally(close); });
+      // Apply stdout backpressure before accepting the next command.
+      await output;
+    }
+    await Promise.all(exports);
+    await output;
+  } catch (error) {
+    if (!closed) { send({ reply: 'error', message: String(error) }); await output; process.exitCode = 1; }
+  } finally { close(); }
 }
 main().catch(error => { process.stderr.write(String(error) + '\n'); process.exitCode = 1; });

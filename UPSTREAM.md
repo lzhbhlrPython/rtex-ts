@@ -34,3 +34,7 @@ The TypeScript API uses Node event listeners, camelCase configuration and explic
 The response-file transport avoids a platform-specific native module. It polls only while waiting for a reply, with a 2 ms interval. It is bounded and restarts on failure; this choice adds latency and is not equivalent to upstream's FIFO/named-pipe implementation.
 
 Report issues to the rtex-ts repository. Please reproduce issues with upstream rtex before reporting them upstream as upstream failures.
+
+## CI installer adaptation
+
+`scripts/install-texlive.sh` and `scripts/texlive.profile` adapt the same revision's installer and profile under the retained MIT license. Local changes add CTeX/Fandol, XeTeX and index dependencies for rtex-ts CI. They are development tooling, not a bundled TeX distribution. The unmodified `vendor/realtime-tex/tex/` manifest is unchanged.

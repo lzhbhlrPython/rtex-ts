@@ -62,6 +62,7 @@ export class Session extends EventEmitter {
   private fastQueue = new Map<number, { file: string; span: Span; revision: number; editId: number }>(); private fastRunning = false;
   private backgroundDirs: string[] = []; private liveSnapshot = '';
   private convergence = 'Stale'; private lastPdf: string | null = null; private exports = 0;
+  private exporting = false;
   private constructor(config: SessionConfig) {
     super();
     this.projectRoot = realpathSync(config.projectRoot);
@@ -231,20 +232,24 @@ export class Session extends EventEmitter {
       const capture = JSON.parse(readFileSync(path.join(output, job + '.rtex.json'), 'utf8')) as Capture;
       const errors = parseErrors(log);
       this.event({ event: 'Diagnostics', source: 'background', items: errors });
+      if (code !== 0) throw new Error('Background compilation failed; retaining the last valid layout');
       const pages: Array<{ page: number; exact: boolean; hash: string; dl: DisplayList }> = [];
       const allPages = new Map<number, DisplayList>();
-      if (capture.pages > 1000) throw new Error('Page limit exceeded');
+      const nextHashes = new Map<number, string>();
+      if (!Number.isSafeInteger(capture.pages) || capture.pages < 0 || capture.pages > 1000) throw new Error('Page limit exceeded');
       for (let page = 1; page <= capture.pages; page++) {
         const data = readFileSync(path.join(output, `${job}.rtex-page${page}.json`), 'utf8');
         if (Buffer.byteLength(data) > 32 * 1024 * 1024) throw new Error('Page display list too large');
         const dl: DisplayList = JSON.parse(data); allPages.set(page, dl); const digest = hash(data);
         if (this.pageHashes.get(page) !== digest) pages.push({ page, exact: isExact(dl), hash: digest, dl });
-        this.pageHashes.set(page, digest);
+        nextHashes.set(page, digest);
       }
-      for (const page of this.pageHashes.keys()) if (page > capture.pages) this.pageHashes.delete(page);
-      const pdf = path.join(this.buildDir, `layout-${++this.layoutVersion}.pdf`); copyFileSync(path.join(output, job + '.pdf'), pdf);
-      this.lastPdf = pdf; this.contextRevision++;
-      const placements = this.installContexts(capture, files, allPages, revision);
+      const { placements, contexts } = this.buildContexts(capture, files, allPages, revision);
+      const pdf = path.join(this.buildDir, `layout-${this.layoutVersion + 1}.pdf`);
+      copyFileSync(path.join(output, job + '.pdf'), pdf);
+      // Publish a complete layout transaction only after every artifact is available.
+      this.pageHashes = nextHashes; this.contexts = contexts;
+      this.layoutVersion++; this.lastPdf = pdf; this.contextRevision++;
       this.convergence = revision !== this.revision ? 'Stale' : code !== 0 ? 'PassLimitReached' : converged ? 'Converged' : 'PassLimitReached';
       this.event({ event: 'LayoutUpdate', versions: { ...this.versions(), source_revision: revision }, compile: { state: code === 0 ? 'Ok' : 'CompiledWithErrors', count: errors.length }, convergence: { state: this.convergence as 'Converged' | 'Stale' | 'PassLimitReached' }, pages_total: capture.pages, pages_changed: pages, placements, eligible_paragraphs: [...this.contexts.keys()], pdf_fallback: [...allPages.values()].some(dl => !isExact(dl)) ? pdf : null, pdf_path: pdf, wall_ms: performance.now() - started, passes });
       if (this.closed) return;
@@ -279,8 +284,8 @@ export class Session extends EventEmitter {
       if (!this.closed && (this.backgroundPending || revision !== this.revision)) { this.backgroundPending = false; this.schedule(); }
     }
   }
-  private installContexts(capture: Capture, files: Map<string, FileState>, pages: Map<number, DisplayList>, revision: number): Placement[] {
-    this.contexts.clear(); const placements: Placement[] = [];
+  private buildContexts(capture: Capture, files: Map<string, FileState>, pages: Map<number, DisplayList>, revision: number): { placements: Placement[]; contexts: Map<number, Context> } {
+    const contexts = new Map<number, Context>(), placements: Placement[] = [];
     const counters: Record<string, number> = {}, formats: Record<string, string> = {}, macros: Record<string, string> = {};
     const matches = new Map<number, number>();
     for (const unit of capture.units) {
@@ -301,16 +306,21 @@ export class Session extends EventEmitter {
         if (index >= 0) rows.push({ dl, index });
       }
       if (!rows.length || rows.length !== unit.placements.length) continue;
-      this.contexts.set(span.id, { file, span, unit, rows, verified: false, revision });
+      contexts.set(span.id, { file, span, unit, rows, verified: false, revision });
       placements.push({ par_id: span.id, fragments: fragments(unit.placements), lines: rows.length, kind: 'par' });
     }
-    for (const [id, count] of matches) if (count !== 1) this.contexts.delete(id);
-    return placements.filter(p => this.contexts.has(p.par_id));
+    for (const [id, count] of matches) if (count !== 1) contexts.delete(id);
+    return { placements: placements.filter(p => contexts.has(p.par_id)), contexts };
   }
   async exportPdf(out: string): Promise<{ path: string; converged: boolean }> {
     if (this.closed) throw new Error('Session is closed');
+    if (this.exporting) throw new Error('A PDF export is already running');
+    this.exporting = true;
     // Export is a fresh ordinary LuaLaTeX pass over an immutable buffer snapshot.
     const id = ++this.exports, revision = this.revision, dir = path.join(this.buildDir, 'export-' + id), source = path.join(dir, 'snapshot'), output = path.join(dir, 'output');
+    try {
+    const target = path.resolve(out);
+    if (inside(dir, target)) throw new Error('Export destination cannot be inside its temporary directory');
     this.snapshot(source, new Map(this.files)); mkdirSync(output, { recursive: true });
     for (const file of this.files.keys()) mkdirSync(path.join(output, path.dirname(file)), { recursive: true });
     const job = path.basename(this.mainFile, path.extname(this.mainFile)); let signature = '', converged = false, passes = 0;
@@ -320,8 +330,12 @@ export class Session extends EventEmitter {
       const next = auxiliarySignature(output);
       if (signature === next && !/Rerun to get|Please \(re\)run|There were undefined references|No file .+\.(?:bbl|ind)\./.test(result.log)) { converged = revision === this.revision; passes++; break; } signature = next;
     }
-    const target = path.resolve(out); mkdirSync(path.dirname(target), { recursive: true }); copyFileSync(path.join(output, job + '.pdf'), target);
+    mkdirSync(path.dirname(target), { recursive: true }); copyFileSync(path.join(output, job + '.pdf'), target);
     this.event({ event: 'PdfExported', job_id: id, path: target, status: { state: 'Ok' }, converged, passes }); return { path: target, converged };
+    } finally {
+      this.exporting = false;
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
   }
   close(): void { this.closed = true; clearTimeout(this.timer); this.engine?.close(); this.processes.close(); this.fastQueue.clear(); this.removeAllListeners(); }
 }
