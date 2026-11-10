@@ -87,6 +87,7 @@ export class Session extends EventEmitter {
   private event(event: SessionEvent): void { if (!this.closed) this.emit('event', event); }
   subscribe(listener: (event: SessionEvent) => void): () => void { this.on('event', listener); return () => this.off('event', listener); }
   versions(): Versions { return { source_revision: this.revision, context_revision: this.contextRevision, engine_generation: this.generation, layout_version: this.layoutVersion }; }
+  processIds(): number[] { return [...this.processes.children].map(child => child.pid).filter((pid): pid is number => pid !== undefined); }
   status(): { versions: Versions; convergence: string } { return { versions: this.versions(), convergence: this.convergence }; }
   private readProject(dir: string, depth: number): void {
     if (depth > 12) throw new Error('Project nesting limit exceeded');

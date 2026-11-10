@@ -21,7 +21,7 @@
     }
   },
   "bin": {
-    "rtex-ts": "./dist/cli.js"
+    "rtex-ts": "dist/cli.js"
   },
   "files": [
     "dist",

@@ -39,6 +39,7 @@ Open returns before the first background layout. Subscribe immediately. Unsaved 
 - `requestLayout()` schedules a full layout now, without writing original source.
 - `exportPdf(out)` performs fresh ordinary LuaLaTeX passes without the capture package. It returns `{ path, converged }`; `converged: false` is not a successful convergence guarantee.
 - `subscribe(listener)` returns an unsubscribe function. The equivalent Node EventEmitter channel is `event`.
+- `processIds()` returns a momentary list of owned process IDs for host supervision; it is not stable identity or permission to kill unrelated/reused PIDs.
 - `close()` is idempotent, cancels timers and kills session-owned process groups (POSIX) or process trees (Windows). It does not delete caller exports or original files.
 
 The default build directory is `.rtex-ts/<session UUID>` inside the project. Supply a session-specific build directory if the host needs a different cache policy. Resources/layout PDFs are retained for recent layouts; background snapshots retain three recent runs and the live engine's pinned snapshot. Hosts own final cache deletion after closing the session and releasing image/font handles.

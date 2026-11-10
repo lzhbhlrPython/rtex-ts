@@ -39,6 +39,7 @@ session.setDocument('main.tex', source.replace('Hello', 'Hello world'));
 - `requestLayout()` 立即安排完整布局，不保存源文件。
 - `exportPdf(out)` 在不加载采集宏包的情况下重新执行普通 LuaLaTeX，返回 `{ path, converged }`；`converged: false` 不代表已收敛。
 - `subscribe(listener)` 返回取消订阅函数，也可以使用 Node EventEmitter 的 `event` 通道。
+- `processIds()` 返回当前会话拥有的进程 ID 快照，供宿主监督；它不是稳定身份，不授权终止无关或已复用的 PID。
 - `close()` 可以重复调用，会取消定时器并结束本会话进程组（POSIX）或进程树（Windows），不删除作者文件或导出结果。
 
 默认构建目录是工程内 `.rtex-ts/<会话 UUID>`。需要其他缓存策略的宿主应提供独立会话目录。资源和 PDF 保留近期布局；后台快照保留最近三轮和实时引擎仍占用的一轮。会话关闭且图像／字体资源释放后，最终缓存清理由宿主控制。
