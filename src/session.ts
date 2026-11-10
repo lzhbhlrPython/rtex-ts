@@ -65,12 +65,12 @@ export class Session extends EventEmitter {
   private exporting = false;
   private constructor(config: SessionConfig) {
     super();
-    this.projectRoot = realpathSync(config.projectRoot);
+    this.projectRoot = realpathSync.native(config.projectRoot);
     const main = sourcePath(this.projectRoot, config.mainFile); this.mainFile = path.relative(this.projectRoot, main).replaceAll('\\', '/');
     this.buildDir = path.resolve(config.buildDir || path.join(this.projectRoot, '.rtex-ts', randomUUID()));
     if (inside(this.buildDir, this.projectRoot)) throw new Error('Build directory cannot contain project root');
     mkdirSync(this.buildDir, { recursive: true });
-    if (inside(this.projectRoot, this.buildDir) && !inside(this.projectRoot, realpathSync(this.buildDir))) throw new Error('Build directory escapes project');
+    if (inside(this.projectRoot, this.buildDir) && !inside(this.projectRoot, realpathSync.native(this.buildDir))) throw new Error('Build directory escapes project');
     this.executable = findLuaLaTeX(config.lualatex);
     this.config = { debounceMs: config.debounceMs ?? 300, compileTimeoutMs: config.compileTimeoutMs ?? 5000, passTimeoutMs: config.passTimeoutMs ?? 120000, maxPasses: config.maxPasses ?? 5, maxSourceBytes: config.maxSourceBytes ?? 4 * 1024 * 1024, fastBudgetMs: config.fastBudgetMs ?? 50 };
     for (const value of Object.values(this.config)) if (!Number.isFinite(value) || value < 1) throw new Error('Invalid session limit');
@@ -95,7 +95,7 @@ export class Session extends EventEmitter {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (IGNORED.has(entry.name) || entry.name.startsWith('.') || inside(this.buildDir, path.join(dir, entry.name))) continue;
       const file = path.join(dir, entry.name);
-      if (entry.isSymbolicLink()) { if (!inside(this.projectRoot, realpathSync(file))) throw new Error('Project symlink escapes root'); continue; }
+      if (entry.isSymbolicLink()) { if (!inside(this.projectRoot, realpathSync.native(file))) throw new Error('Project symlink escapes root'); continue; }
       if (entry.isDirectory()) this.readProject(file, depth + 1);
       else if (/\.(tex|ltx)$/i.test(entry.name)) {
         if (this.files.size >= 500 || statSync(file).size > this.config.maxSourceBytes) throw new Error('Project source limit exceeded');
@@ -193,7 +193,7 @@ export class Session extends EventEmitter {
         if (IGNORED.has(entry.name) || entry.name.startsWith('.') || inside(this.buildDir, source)) continue;
         if (++count > 10000) throw new Error('Snapshot file limit exceeded');
         const target = path.join(to, entry.name);
-        if (entry.isSymbolicLink()) { if (!inside(this.projectRoot, realpathSync(source))) throw new Error('Project symlink escapes root'); if (statSync(source).isDirectory()) continue; }
+        if (entry.isSymbolicLink()) { if (!inside(this.projectRoot, realpathSync.native(source))) throw new Error('Project symlink escapes root'); if (statSync(source).isDirectory()) continue; }
         if (entry.isDirectory()) { mkdirSync(target, { recursive: true }); visit(source, target, depth + 1); }
         else if (entry.isFile() || entry.isSymbolicLink()) {
           const size = statSync(source).size; bytes += size;

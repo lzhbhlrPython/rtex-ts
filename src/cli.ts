@@ -1,23 +1,24 @@
 #!/usr/bin/env node
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { Session } from './session.js';
 import { Processes, findLuaLaTeX, SUPPORT_DIR } from './process.js';
 import { jsonLines } from './json-lines.js';
 
+const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
 const args = process.argv.slice(2), command = args.shift();
 const option = (name: string): string | undefined => { const index = args.indexOf('--' + name); if (index < 0) return undefined; const value = args[index + 1]; if (!value || value.startsWith('--')) throw new Error('Missing --' + name); return value; };
 async function main(): Promise<void> {
-  if (command === '--version' || command === 'version') { process.stdout.write('rtex-ts 0.1.0\n'); return; }
+  if (command === '--version' || command === 'version') { process.stdout.write(`rtex-ts ${version}\n`); return; }
   if (command === 'doctor') {
     const executable = findLuaLaTeX(option('lualatex'));
     if (!existsSync(path.join(SUPPORT_DIR, 'rtex-serve.lua'))) throw new Error('Lua/TeX support files missing');
     const result = await new Processes().run(executable, ['--version'], process.cwd(), process.env, 10000);
     if (result.code) throw new Error(result.log);
-    process.stdout.write(`rtex-ts 0.1.0\nsupport files: ${SUPPORT_DIR}\n${result.log.split('\n')[0]}\n`); return;
+    process.stdout.write(`rtex-ts ${version}\nsupport files: ${SUPPORT_DIR}\n${result.log.split('\n')[0]}\n`); return;
   }
   if (command !== 'serve') {
-    process.stdout.write('rtex-ts 0.1.0\nUsage: rtex-ts doctor [--lualatex PATH]\n       rtex-ts serve --project DIR --main main.tex [--build DIR] [--lualatex PATH]\n\nJSON-lines on stdin/stdout. See docs/embedding.md.\n');
+    process.stdout.write(`rtex-ts ${version}\nUsage: rtex-ts doctor [--lualatex PATH]\n       rtex-ts serve --project DIR --main main.tex [--build DIR] [--lualatex PATH]\n\nJSON-lines on stdin/stdout. See docs/embedding.md.\n`);
     if (command && !['--help', '-h'].includes(command)) process.exitCode = 1;
     return;
   }

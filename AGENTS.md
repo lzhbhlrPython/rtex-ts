@@ -12,6 +12,9 @@ Read `README.md`, `UPSTREAM.md`, `docs/architecture.md`, and the relevant source
 - This repository is separate from TeXPro. Do not add desktop UI or TeXPro configuration here.
 - Use npm and `package-lock.json`; do not add another package manager's lockfile.
 - Keep private plans, tokens, logs, TeX caches, output PDFs and performance artifacts out of Git and npm archives.
+- Every implementation/build update commit increments the package version and updates English/Simplified Chinese changelogs. Release independently verified improvements in small versions; never overwrite a published version.
+- Performance is a core product requirement. Measure rtex-ts edit-to-event latency (including synchronous edit work), background latency and resource use; publish reproducible methodology and environment with claims. Keep the product site bilingual with locale-aware numbers, units and dates.
+- Keep website source, dependencies and deployment artifacts outside the npm archive; assert this in tarball tests.
 - Commit focused, tested changes. Push the task branch when authorized. Publishing or overwriting a release requires the corresponding user authorization; never replace an already published npm version.
 
 ## Authorship and licenses

@@ -8,7 +8,7 @@ if(spawnSync(lua,['--version'],{encoding:'utf8'}).status!==0)throw new Error('Re
 function waitFor(session,predicate,timeout=90000){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{off();reject(new Error('Timed out waiting for TeX event'))},timeout);const off=session.subscribe(event=>{if(predicate(event)){clearTimeout(timer);off();resolve(event)}})})}
 
 test('real LuaLaTeX: CJK/math live edits, multi-file buffers, TikZ fallback, clean export and close', {timeout:180000},async t=>{
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'rtex-ts-real-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));fs.mkdirSync(path.join(root,'chapters'));
+ const root=fs.mkdtempSync(path.join((process.env.RUNNER_TEMP || os.tmpdir()),'rtex-ts-real-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));fs.mkdirSync(path.join(root,'chapters'));
  let main=String.raw`\documentclass[fontset=fandol]{ctexart}
 \usepackage{unicode-math}
 \usepackage{tikz}
@@ -24,7 +24,7 @@ test('real LuaLaTeX: CJK/math live edits, multi-file buffers, TikZ fallback, cle
 `;
  let intro='Second file paragraph. 子文件内容。\n';fs.writeFileSync(path.join(root,'main.tex'),main);fs.writeFileSync(path.join(root,'chapters/intro.tex'),intro);
  const session=await Session.open({projectRoot:root,mainFile:'main.tex',lualatex:lua,fastBudgetMs:500,debounceMs:500});t.after(()=>session.close());
- const seen=[];session.subscribe(event=>seen.push(event));
+ const seen=[];session.subscribe(event=>{seen.push(event);if(event.event==='EngineState'&&event.state==='Failed')console.error('TeX failure:',event.reason)});
  await waitFor(session,event=>event.event==='EngineState'&&event.state==='Ready');
  const layout=seen.find(event=>event.event==='LayoutUpdate');assert.ok(layout.pages_total>=1);assert.ok(fs.existsSync(layout.pdf_path));
  assert.ok(layout.pages_changed.some(page=>!isExact(page.dl)),'TikZ should require PDF rendering');

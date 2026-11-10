@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 export const SUPPORT_DIR = fileURLToPath(new URL('../vendor/realtime-tex/tex/', import.meta.url));
 export function inside(root: string, file: string): boolean { const relative = path.relative(root, file); return relative === '' || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative)); }
 export function sourcePath(root: string, file: string): string {
-  const real = realpathSync(path.resolve(root, file));
+  const real = realpathSync.native(path.resolve(root, file));
   if (!inside(root, real) || !/\.(tex|ltx)$/i.test(real) || !statSync(real).isFile()) throw new Error('Source must be a TeX file inside project');
   return real;
 }

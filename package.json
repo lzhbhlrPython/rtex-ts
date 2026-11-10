@@ -1,6 +1,6 @@
 {
   "name": "rtex-ts",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Experimental TypeScript incremental LuaLaTeX sessions for Node.js, derived from realtime-tex",
   "type": "module",
   "license": "MIT",
@@ -33,7 +33,9 @@
     "UPSTREAM.md",
     "vendor/realtime-tex/manifest.json",
     "AGENTS.md",
-    "src"
+    "src",
+    "CHANGELOG.md",
+    "CHANGELOG.zh-CN.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -41,7 +43,8 @@
     "test": "npm run build && node --test test/*.test.mjs",
     "test:tex": "npm run build && node --test test/tex.integration.mjs",
     "prepack": "npm run build",
-    "test:pack": "npm run build && node test/pack.integration.mjs"
+    "test:pack": "npm run build && node test/pack.integration.mjs",
+    "benchmark": "npm run build && node scripts/benchmark.mjs"
   },
   "keywords": [
     "latex",

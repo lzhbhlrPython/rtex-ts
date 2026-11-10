@@ -8,7 +8,7 @@ import { Session, splitPreamble } from '../dist/index.js';
 import { jsonLines } from '../dist/json-lines.js';
 
 async function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rtex-recovery-'));
+  const root = fs.mkdtempSync(path.join((process.env.RUNNER_TEMP || os.tmpdir()), 'rtex-recovery-'));
   const source = '\\documentclass{article}\n\\begin{document}\nHello.\n\\end{document}\n';
   fs.writeFileSync(path.join(root, 'main.tex'), source);
   const session = await Session.open({ projectRoot: root, mainFile: 'main.tex', maxPasses: 1 });
