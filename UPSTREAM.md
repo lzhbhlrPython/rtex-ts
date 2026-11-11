@@ -15,9 +15,10 @@ The TypeScript host was written by closely studying the upstream implementation.
 | `src/engine.ts` | `crates/rtex-core/src/engine.rs`, `transport.rs` | Adapts the persistent TeX driver, context and framed response handling; adapts POSIX FIFOs and Windows named pipes through Node streams |
 | `src/transport.ts` | `crates/rtex-core/src/transport.rs` | Adapts bounded framed FIFO / Windows named-pipe responses to Node streams |
 | `src/tex-syntax.ts`, `src/preamble.ts` | `document.rs`, `eligibility.rs` | Adapt balanced scanning, buffer-aware preamble inputs and setup statements |
-| `src/eligibility.ts`, `src/eligibility-tables.ts` | `eligibility.rs` | Copy/adapt MIT allow-list/package/opaque-argument tables and reimplement context guards and macro analysis; not a line-for-line policy port |
+| `src/eligibility.ts`, `src/eligibility-tables.ts`, `src/definitions.ts` | `eligibility.rs` | Copy/adapt MIT allow-list/package/opaque-argument tables and reimplement context guards and macro analysis; not a line-for-line policy port |
 | `src/auxiliary.ts`, `src/background-engine.ts` | `background.rs`, `tex/rtex-bg.lua`, `tex/latex/rtex-capture.sty` | Adapt bibliography/index signatures and tool selection, labels, one-shot standby engine and plain-export index recording |
 | `src/picture-cache.ts` | `crates/rtex-core/src/piccache.rs` | Adapts ordered picture hashes, guards, manifests, quarantine and eviction; replaces lopdf extraction with installed LuaTeX page embedding, without modifying vendored runtime |
+| `src/pdf-compare.ts` | `crates/rtex-verify/src/raster.rs`, CLI verification design | Adapts the raster-oracle workflow using optional external Poppler and a bounded Node PPM comparator; does not copy or port the full structural/glyph PDF suite |
 | `src/process.ts` | `crates/rtex-core/src/texlive.rs` | Adapts support lookup, TeX environment, input-path hook and process ownership |
 | `src/session.ts` | `session/`, `layout.rs`, `capture.rs`, `background.rs` | Reimplements the two-path session, capture contexts, paragraph probes, placements, revisions and snapshot passes |
 | `vendor/realtime-tex/tex/` | upstream `tex/` | Unmodified copied source, retaining upstream authorship |

@@ -516,6 +516,12 @@ function Site() {
                   }).format(new Date("2026-11-11T00:00:00+08:00"))}
                   .
                 </p>
+                <h3>{t.startupTitle}</h3>
+                <p>
+                  {t.startupBefore}: <strong>{new Intl.NumberFormat(locale, { style: "unit", unit: "second", maximumFractionDigits: 2 }).format(11.738)}</strong>
+                  {" → "}{t.startupAfter}: <strong>{new Intl.NumberFormat(locale, { style: "unit", unit: "second", maximumFractionDigits: 2 }).format(1.826)}</strong>
+                </p>
+                <p className="caption">{t.startupNote} <a href={to("docs/performance")}>{t.measure}</a></p>
                 <h3>{t.cacheTitle}</h3>
                 <p>
                   {t.cacheOff}: <strong>{new Intl.NumberFormat(locale, { style: "unit", unit: "second", maximumFractionDigits: 2 }).format(3.618)}</strong>

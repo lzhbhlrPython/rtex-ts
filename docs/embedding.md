@@ -79,7 +79,7 @@ rtex-ts serve --project /path/to/project --main main.tex --build /path/to/sessio
 
 Commands are `set_document`, `edit`, `spans`, `status`, `stats`, `ping`, `pause_background`, `verify`, `request_layout`, `export_pdf`, and `quit`. `pause_background` requires a boolean `paused`; `verify` runs asynchronously and only one verification may run at once. They use the fields shown in README; `export_pdf` requires `out`, `spans` takes `path`. Optional `id` values are echoed on successful replies. Failures use `{ "reply": "error", "message": "..." }`; unknown commands are rejected. Drawing events use an `event` discriminator. Do not assume replies and events alternate; drain stdout continuously.
 
-The server closes the session when stdin closes. Stdout is JSON-lines only. It bounds output queued for a slow consumer to 64 MiB. This protocol resembles upstream rtex but intentionally implements a subset; there is no C ABI, Rust dependency or upstream API-compatibility promise. Standalone commands also include `export --out FILE`, `verify`, `profile` and `dl2json --input FILE`. `profile` reports a Node memory/CPU snapshot, not TeX process-tree resource use or a latency profile. `verify` checks eligible live units only, not PDF visual equality. Configuration flags include `--engine`, `--tex`, `--eligibility`, `--trusted-macros`, `--unit-envs`, `--math-owner-attribute`, `--bib-tool`, `--no-index`, and `--no-warm-background`.
+The server closes the session when stdin closes. Stdout is JSON-lines only. It bounds output queued for a slow consumer to 64 MiB. This protocol resembles upstream rtex but intentionally implements a subset; there is no C ABI, Rust dependency or upstream API-compatibility promise. Standalone commands also include `export --out FILE`, `verify`, `profile` and `dl2json --input FILE`. `profile` reports a Node memory/CPU snapshot, plus startup wall times, not TeX process-tree resource use. `verify` without `--pdf` checks eligible live units only. Configuration flags include `--engine`, `--tex`, `--eligibility`, `--trusted-macros`, `--unit-envs`, `--math-owner-attribute`, `--bib-tool`, `--no-index`, and `--no-warm-background`.
 
 ## Security and distribution
 
@@ -94,3 +94,11 @@ A background layout is installed atomically after its display lists, contexts an
 CLI requests are limited to 8 MiB of UTF-8 bytes before a newline is received. Input consumption follows output backpressure without an unbounded request queue. Export runs asynchronously, so `status` and `quit` remain available; a second concurrent export is rejected.
 
 Auxiliary tools run on trusted document requests. `auto` chooses Biber when a `.bcf` exists, otherwise BibTeX for `\bibdata`; index programs are restricted to makeindex/texindy/xindy/truexindy/upmendex/mendex. The tool programs and document dependencies must be installed separately. Failure preserves the previous valid layout.
+
+## Startup cache and policy inference (0.1.9)
+
+The default follows the TeX installation font cache, including an existing `TEXMFCACHE`, instead of forcing a fresh cache per session. TeX/the host owns this cache; `close()` does not delete it. Restricted or isolated hosts can set `fontCacheDir` (`--font-cache DIR` in the CLI), outside project sources or inside this session’s build directory. It may be reused across sessions; initial generation still costs time and requires writable cache directories.
+
+Inference supports braced/bare new/renew/providecommand names, parameterless `\def`, DeclareMathOperator, xparse definitions with mandatory `m` arguments only, and checked custom inner/block environments. Balanced definition bodies cannot introduce deferred declarations as top-level facts. Unsupported signatures, recursion, unknown and global-effect definitions stay on the background path. Heading wrappers, class-specific rules and full text/math-mode inference remain unported. Newly eligible units still require old-source probes and context checks.
+
+`stats().startup` reports first-layout and live-ready durations. See [verification tools](verification.md) for `verify --pdf` and `pdf-compare`.

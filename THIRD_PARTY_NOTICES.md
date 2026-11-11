@@ -17,3 +17,5 @@ Clemens Lode, *Real-Time LuaTeX: Recompiling Large Documents in 1 ms*, TUG 2026,
 ## External dependencies
 
 A separately installed LuaLaTeX/TeX Live or compatible distribution is required. TeX engines, classes, packages, fonts and user documents have their own licenses. This npm package neither installs nor redistributes them. Runtime JavaScript has no third-party npm dependencies; TypeScript and Node type declarations are development dependencies with their own licenses.
+
+Optional PDF raster verification calls separately installed Poppler tools (`pdfinfo`, `pdftoppm`). They have their own licenses and are not installed or redistributed by this package.

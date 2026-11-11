@@ -32,6 +32,11 @@ export const docs = [
     file: "docs/performance",
   },
   {
+    id: "verification",
+    title: { "zh-CN": "CLI 与 PDF 验证", en: "CLI & PDF verification" },
+    file: "docs/verification",
+  },
+  {
     id: "architecture",
     title: { "zh-CN": "架构与数据流", en: "Architecture" },
     file: "docs/architecture",

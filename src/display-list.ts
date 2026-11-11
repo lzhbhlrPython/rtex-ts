@@ -64,5 +64,11 @@ export function decodeDisplayList(data: Uint8Array): DisplayList {
   return dl;
 }
 export function isExact(dl: DisplayList): boolean {
-  return !Object.values(dl.flags).some(Boolean) && ![...dl.other, ...dl.lines.flatMap(line => line.items)].some(item => ['l', 'u'].includes(item[0]));
+  if (Object.values(dl.flags).some(Boolean)) return false;
+  const supported = (item: DrawItem) => {
+    if (['l', 'u'].includes(item[0])) return false;
+    if (item[0] === 'g') return !!dl.fonts[String(item[1])]?.filename && Number.isSafeInteger(item[3]) && Number(item[3]) >= 0;
+    return true;
+  };
+  return dl.other.every(supported) && dl.lines.every(line => line.items.every(supported));
 }

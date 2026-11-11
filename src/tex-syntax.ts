@@ -1,7 +1,11 @@
 /** Balanced TeX scanning adapted from realtime-tex document.rs/eligibility.rs (MIT). */
 export interface Group { value: string; start: number; end: number }
+export function skipTexSpace(text: string, from: number): number {
+  let at = from;
+  for (;;) { while (at < text.length && /\s/.test(text[at])) at++; if (text[at] !== '%') return at; const end = text.indexOf('\n', at); if (end < 0) return text.length; at = end + 1; }
+}
 export function groupAt(text: string, from: number, open = '{', close = '}'): Group | undefined {
-  let i = from; while (/\s/.test(text[i] || '') && i < text.length) i++;
+  let i = skipTexSpace(text, from);
   if (text[i] !== open) return;
   const start = i++, body = i; let depth = 1, braces = 0;
   for (; i < text.length; i++) {

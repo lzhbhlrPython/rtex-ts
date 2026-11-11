@@ -65,6 +65,9 @@ export class Session extends EventEmitter {
   private policy: Policy;
   private options: SessionConfig;
   private engineName: 'lualatex' | 'xelatex' | 'pdflatex';
+  private openedAt = performance.now();
+  private startup: { first_layout_ms?: number; ready_ms?: number } = {};
+  private fontCacheDir?: string;
   private paused = false;
   private standby?: { engine: BackgroundEngine; dir: string; preamble: string };
   private pictures?: PictureCache;
@@ -90,10 +93,31 @@ export class Session extends EventEmitter {
     this.config = { debounceMs: config.debounceMs ?? 300, compileTimeoutMs: config.compileTimeoutMs ?? 5000, passTimeoutMs: config.passTimeoutMs ?? 120000, maxPasses: config.maxPasses ?? 5, maxSourceBytes: config.maxSourceBytes ?? 4 * 1024 * 1024, fastBudgetMs: config.fastBudgetMs ?? 50 };
     for (const value of Object.values(this.config)) if (!Number.isFinite(value) || value < 1) throw new Error('Invalid session limit');
     if (this.engineName === 'lualatex' && config.pictureCache !== false) this.pictures = new PictureCache(path.join(this.buildDir, 'picture-cache-' + randomUUID()), this.processes, this.executable, this.config.passTimeoutMs);
-    this.env = environment(this.projectRoot, this.mainFile, path.join(this.buildDir, 'font-cache'));
+    if (config.fontCacheDir !== undefined) {
+      let parent = path.resolve(config.fontCacheDir); const remaining: string[] = [];
+      while (!existsSync(parent)) { remaining.unshift(path.basename(parent)); parent = path.dirname(parent); }
+      const candidate = path.join(realpathSync.native(parent), ...remaining);
+      if (inside(this.projectRoot, candidate) && !inside(this.buildDir, candidate)) throw new Error('Font cache must be outside project sources');
+      texPath(candidate); mkdirSync(candidate, { recursive: true });
+      this.fontCacheDir = realpathSync.native(candidate);
+      if (inside(this.projectRoot, this.fontCacheDir) && !inside(this.buildDir, this.fontCacheDir)) throw new Error('Font cache must be outside project sources');
+      texPath(this.fontCacheDir);
+    }
+    this.env = environment(this.projectRoot, this.mainFile, this.fontCacheDir);
     this.readProject(this.projectRoot, 0);
     if (!this.files.has(this.mainFile)) this.addFile(this.mainFile, readFileSync(main, 'utf8'));
-    this.policy = new Policy(effectivePreamble(this.files, this.mainFile), this.options);
+    this.updatePolicy(effectivePreamble(this.files, this.mainFile));
+  }
+  private updatePolicy(preamble: string): void {
+    const next = new Policy(preamble, this.options);
+    const rulesChanged = [...next.unitEnvs].sort().join(',') !== [...this.policy.unitEnvs].sort().join(',');
+    this.policy = next;
+    if (rulesChanged) for (const [file, state] of this.files) {
+      const previous = new Map(state.spans.map(span => [span.start, span]));
+      const spans = splitSpans(state.text, file === this.mainFile, { blockEnvs: [...next.unitEnvs] });
+      for (const span of spans) { const old = previous.get(span.start); if (old && old.end === span.end && old.kind === span.kind && old.text === span.text) span.id = old.id; }
+      this.files.set(file, { text: state.text, spans });
+    }
   }
   static async open(config: SessionConfig): Promise<Session> {
     const session = new Session(config);
@@ -106,8 +130,8 @@ export class Session extends EventEmitter {
   versions(): Versions { return { source_revision: this.revision, context_revision: this.contextRevision, engine_generation: this.generation, layout_version: this.layoutVersion }; }
   processIds(): number[] { return [...this.processes.children].map(child => child.pid).filter((pid): pid is number => pid !== undefined); }
   status(): { versions: Versions; convergence: string } { return { versions: this.versions(), convergence: this.convergence }; }
-  stats(): { versions: Versions; convergence: string; processes: number[]; files: number; sourceBytes: number; eligibleUnits: number; pendingLive: number; backgroundRunning: boolean; backgroundPaused: boolean; warmBackground: boolean; pictureCache: { entries: number; manifestHits: number } | null } {
-    return { ...this.status(), processes: this.processIds(), files: this.files.size, sourceBytes: [...this.files.values()].reduce((sum, file) => sum + Buffer.byteLength(file.text), 0), eligibleUnits: this.contexts.size, pendingLive: this.fastQueue.size, backgroundRunning: this.backgroundRunning, backgroundPaused: this.paused, warmBackground: !!this.standby?.engine.ready(), pictureCache: this.pictures?.stats() || null };
+  stats(): { startup: { first_layout_ms?: number; ready_ms?: number }; versions: Versions; convergence: string; processes: number[]; files: number; sourceBytes: number; eligibleUnits: number; pendingLive: number; backgroundRunning: boolean; backgroundPaused: boolean; warmBackground: boolean; pictureCache: { entries: number; manifestHits: number } | null } {
+    return { ...this.status(), startup: { ...this.startup }, processes: this.processIds(), files: this.files.size, sourceBytes: [...this.files.values()].reduce((sum, file) => sum + Buffer.byteLength(file.text), 0), eligibleUnits: this.contexts.size, pendingLive: this.fastQueue.size, backgroundRunning: this.backgroundRunning, backgroundPaused: this.paused, warmBackground: !!this.standby?.engine.ready(), pictureCache: this.pictures?.stats() || null };
   }
   /** Probe current captured source units without editing buffers or publishing overlays. */
   async verify(): Promise<{ sourceRevision: number; stale: boolean; units: Array<{ id: number; matched: boolean; reason?: string }> }> {
@@ -190,7 +214,7 @@ export class Session extends EventEmitter {
     }
     const routed = (preambleChanged || affected?.kind === 'preamble') ? 'preamble' : replacement && ['paragraph', 'environment', 'heading', 'unsupported'].includes(replacement.kind) && !this.policy.classify(replacement.text).reasons.length && this.contexts.has(replacement.id) && this.engine ? 'fast' : 'background';
     const reasons = routed === 'fast' ? [] : [routed === 'preamble' ? 'preamble changed' : 'unit requires full layout'];
-    if (routed === 'preamble') { this.policy = new Policy(nextPreamble || '', this.options); this.engine?.close(); this.engine = undefined; this.preambleHash = ''; this.generation++; }
+    if (routed === 'preamble') { this.updatePolicy(nextPreamble || ''); this.engine?.close(); this.engine = undefined; this.preambleHash = ''; this.generation++; }
     if (routed === 'fast') {
       this.fastQueue.set(replacement!.id, { file: key, span: replacement!, revision: this.revision, editId: this.editId }); void this.fast();
     } else this.event({ event: 'BackgroundScheduled', par_id: affected?.id || null, edit_id: this.editId, reasons });
@@ -283,7 +307,7 @@ export class Session extends EventEmitter {
       const driver = path.join(dir, 'rtex-warm.tex');
       writeFileSync(driver, INPUT_PATH_HOOK + '\\RequirePackage{rtex-capture}\\input{' + texPath(preambleFile) + '}\\directlua{texio.write_nl("term","RTEX_BG_READY") io.stdout:flush() dofile(kpse.find_file("rtex-bg.lua","lua"))}\\input{' + texPath(this.mainFile) + '}');
       const args = ['-interaction=nonstopmode', '-halt-on-error', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), texPath(driver)];
-      const env = { ...environment(snapshot, this.mainFile, path.join(this.buildDir, 'font-cache')), RTEX_CAPTURE_DIR: texPath(output), RTEX_UNIT_ENVS: [...this.policy.unitEnvs].join(','), RTEX_MATH_OWNER_ATTRIBUTE: this.options.mathOwnerAttribute === undefined ? undefined : String(this.options.mathOwnerAttribute) };
+      const env = { ...environment(snapshot, this.mainFile, this.fontCacheDir), RTEX_CAPTURE_DIR: texPath(output), RTEX_UNIT_ENVS: [...this.policy.unitEnvs].join(','), RTEX_MATH_OWNER_ATTRIBUTE: this.options.mathOwnerAttribute === undefined ? undefined : String(this.options.mathOwnerAttribute) };
       this.standby = { engine: new BackgroundEngine(this.processes, this.executable, args, snapshot, env), dir, preamble };
     } catch (error) { this.event({ event: 'Diagnostics', source: 'standby', items: [{ severity: 'warning', message: String(error) }] }); }
   }
@@ -311,7 +335,7 @@ export class Session extends EventEmitter {
       const driver = path.join(dir, 'rtex-background.tex');
       writeFileSync(driver, inputPathHook(this.engineName, snapshot, this.mainFile) + (this.engineName === 'lualatex' ? '\\RequirePackage{rtex-capture}' : INDEX_HOOK) + '\\input{' + texPath(this.mainFile) + '}');
       const args = ['-interaction=nonstopmode', '-halt-on-error', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), texPath(driver)];
-      const env = { ...environment(snapshot, this.mainFile, path.join(this.buildDir, 'font-cache')), RTEX_CAPTURE_DIR: texPath(output), RTEX_UNIT_ENVS: [...this.policy.unitEnvs].join(','), RTEX_MATH_OWNER_ATTRIBUTE: this.options.mathOwnerAttribute === undefined ? undefined : String(this.options.mathOwnerAttribute) };
+      const env = { ...environment(snapshot, this.mainFile, this.fontCacheDir), RTEX_CAPTURE_DIR: texPath(output), RTEX_UNIT_ENVS: [...this.policy.unitEnvs].join(','), RTEX_MATH_OWNER_ATTRIBUTE: this.options.mathOwnerAttribute === undefined ? undefined : String(this.options.mathOwnerAttribute) };
       const tools = new AuxiliaryTools(this.processes, this.executable, this.config.passTimeoutMs, this.options.bibTool, this.options.index, this.options.auxExecutables);
       const pictures = this.pictures ? scanPictures(files, this.mainFile) : [];
       let pictureMismatch = false;
@@ -381,6 +405,7 @@ export class Session extends EventEmitter {
       this.pageHashes = nextHashes; this.contexts = contexts;
       this.layoutVersion++; this.lastPdf = pdf; this.contextRevision++;
       this.convergence = revision !== this.revision ? 'Stale' : code !== 0 ? 'PassLimitReached' : converged ? 'Converged' : 'PassLimitReached';
+      this.startup.first_layout_ms ??= performance.now() - this.openedAt;
       this.event({ event: 'LayoutUpdate', versions: { ...this.versions(), source_revision: revision }, compile: { state: code === 0 ? 'Ok' : 'CompiledWithErrors', count: errors.length }, convergence: { state: this.convergence as 'Converged' | 'Stale' | 'PassLimitReached' }, pages_total: capture.pages, pages_changed: pages, placements, eligible_paragraphs: [...this.contexts.keys()], pdf_fallback: this.engineName !== 'lualatex' ? pdf : [...allPages.values()].some(dl => !isExact(dl)) ? pdf : null, pdf_path: pdf, wall_ms: performance.now() - started, passes });
       if (this.closed || this.engineName !== 'lualatex') return;
       const preamble = effectivePreamble(files, this.mainFile);
@@ -389,12 +414,13 @@ export class Session extends EventEmitter {
         this.engine?.close(); const generation = ++this.generation;
         this.event({ event: 'EngineState', engine_generation: generation, state: 'Starting' });
         if (this.closed || generation !== this.generation) return;
-        const engine = new LiveEngine(this.processes, this.executable, snapshot, path.join(this.buildDir, 'live-' + generation), { ...environment(snapshot, this.mainFile, path.join(this.buildDir, 'font-cache')), RTEX_MATH_OWNER_ATTRIBUTE: this.options.mathOwnerAttribute === undefined ? undefined : String(this.options.mathOwnerAttribute) }, this.config.compileTimeoutMs);
+        const engine = new LiveEngine(this.processes, this.executable, snapshot, path.join(this.buildDir, 'live-' + generation), { ...environment(snapshot, this.mainFile, this.fontCacheDir), RTEX_MATH_OWNER_ATTRIBUTE: this.options.mathOwnerAttribute === undefined ? undefined : String(this.options.mathOwnerAttribute) }, this.config.compileTimeoutMs);
         this.engine = engine;
         try {
           await engine.start(preamble, path.join(output, job + '.aux'));
           if (this.closed || engine !== this.engine) { engine.close(); return; }
           this.preambleHash = hash(preamble); this.liveSnapshot = dir;
+          this.startup.ready_ms ??= performance.now() - this.openedAt;
           this.event({ event: 'EngineState', engine_generation: generation, state: 'Ready' });
         } catch (error) {
           engine.close(); if (engine === this.engine) this.engine = undefined;
@@ -470,9 +496,9 @@ export class Session extends EventEmitter {
     const driver = path.join(dir, 'rtex-export.tex');
     writeFileSync(driver, inputPathHook(this.engineName, source, this.mainFile) + INDEX_HOOK + '\\input{' + texPath(this.mainFile) + '}');
     for (; passes < this.config.maxPasses; passes++) {
-      const result = await this.processes.run(this.executable, ['-interaction=nonstopmode', '-halt-on-error', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), texPath(driver)], source, environment(source, this.mainFile, path.join(this.buildDir, 'font-cache')), this.config.passTimeoutMs);
+      const result = await this.processes.run(this.executable, ['-interaction=nonstopmode', '-halt-on-error', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), texPath(driver)], source, environment(source, this.mainFile, this.fontCacheDir), this.config.passTimeoutMs);
       if (this.closed || result.code) throw new Error('PDF export failed: ' + result.log.slice(-2000));
-      await tools.run(source, this.mainFile, output, environment(source, this.mainFile, path.join(this.buildDir, 'font-cache')));
+      await tools.run(source, this.mainFile, output, environment(source, this.mainFile, this.fontCacheDir));
       const next = auxiliarySignature(output);
       if (signature === next && !/Rerun to get|Please \(re\)run|There were undefined references|No file .+\.(?:bbl|ind)\./.test(result.log)) { converged = revision === this.revision; passes++; break; } signature = next;
     }

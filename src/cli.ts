@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import { decodeDisplayList } from './display-list.js';
 import type { SessionConfig } from './types.js';
 import { Session } from './session.js';
 import { Processes, findTeXEngine, SUPPORT_DIR } from './process.js';
+import { comparePdfs } from './pdf-compare.js';
 import { jsonLines } from './json-lines.js';
 
 const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
@@ -13,19 +16,26 @@ const option = (name: string): string | undefined => { const index = args.indexO
 function configuration(): SessionConfig {
   const projectRoot = option('project'); if (!projectRoot) throw new Error('--project is required');
   const attribute = option('math-owner-attribute');
-  return { projectRoot, mainFile: option('main') || 'main.tex', buildDir: option('build'), engine: (option('engine') || 'lualatex') as SessionConfig['engine'], texExecutable: option('tex') || option('lualatex'), eligibility: option('eligibility') as SessionConfig['eligibility'], trustedMacros: option('trusted-macros')?.split(','), unitEnvs: option('unit-envs')?.split(','), bibTool: option('bib-tool') as SessionConfig['bibTool'], mathOwnerAttribute: attribute === undefined ? undefined : Number(attribute), warmBackground: !args.includes('--no-warm-background'), pictureCache: !args.includes('--no-picture-cache'), index: !args.includes('--no-index') };
+  return { projectRoot, mainFile: option('main') || 'main.tex', buildDir: option('build'), fontCacheDir: option('font-cache'), engine: (option('engine') || 'lualatex') as SessionConfig['engine'], texExecutable: option('tex') || option('lualatex'), eligibility: option('eligibility') as SessionConfig['eligibility'], trustedMacros: option('trusted-macros')?.split(','), unitEnvs: option('unit-envs')?.split(','), bibTool: option('bib-tool') as SessionConfig['bibTool'], mathOwnerAttribute: attribute === undefined ? undefined : Number(attribute), warmBackground: !args.includes('--no-warm-background'), pictureCache: !args.includes('--no-picture-cache'), index: !args.includes('--no-index') };
 }
-async function ready(session: Session, pdfOnly = false): Promise<void> {
+async function ready(session: Session, pdfOnly = false): Promise<string> {
   return new Promise((resolve,reject) => {
+    let pdf = '';
     const timer = setTimeout(() => { off(); reject(new Error('Engine readiness timed out')); }, 180000);
     const off = session.subscribe(event => {
-      if (event.event === 'LayoutUpdate' && pdfOnly) { clearTimeout(timer); off(); resolve(); }
-      if (event.event === 'EngineState' && ['Ready','Failed'].includes(event.state)) { clearTimeout(timer); off(); event.state === 'Ready' ? resolve() : reject(new Error(event.reason)); }
+      if (event.event === 'LayoutUpdate') { pdf = event.pdf_path; if (pdfOnly) { clearTimeout(timer); off(); resolve(pdf); } }
+      if (event.event === 'EngineState' && ['Ready','Failed'].includes(event.state)) { clearTimeout(timer); off(); event.state === 'Ready' && pdf ? resolve(pdf) : reject(new Error(event.reason)); }
     });
   });
 }
 async function main(): Promise<void> {
   if (command === '--version' || command === 'version') { process.stdout.write(`rtex-ts ${version}\n`); return; }
+  if (command === 'pdf-compare') {
+    const a = option('a'), b = option('b'); if (!a || !b) throw new Error('--a and --b are required');
+    const number = (name: string) => option(name) === undefined ? undefined : Number(option(name));
+    const result = await comparePdfs(a, b, { dpi: number('dpi'), tolerance: number('tolerance'), maxDifferentRatio: number('max-different-ratio'), pdfinfo: option('pdfinfo'), pdftoppm: option('pdftoppm') });
+    process.stdout.write(JSON.stringify(result) + '\n'); if (!result.equal) process.exitCode = 1; return;
+  }
   if (command === 'doctor') {
     const name = option('engine') || 'lualatex'; if (!['lualatex','xelatex','pdflatex'].includes(name)) throw new Error('Unsupported engine');
     const executable = findTeXEngine(name as SessionConfig['engine'] & string, option('tex') || option('lualatex'));
@@ -44,12 +54,26 @@ async function main(): Promise<void> {
     const session = await Session.open(config);
     try {
       if (command === 'export') { session.pauseBackground(true); const out = option('out'); if (!out) throw new Error('--out is required'); process.stdout.write(JSON.stringify(await session.exportPdf(out)) + '\n'); }
-      else { await ready(session, config.engine !== 'lualatex'); session.pauseBackground(true); const verification = command === 'verify' ? await session.verify() : undefined; process.stdout.write(JSON.stringify({ ...session.stats(), memory: process.memoryUsage(), cpu: process.cpuUsage(), verification }) + '\n'); if (verification && (!verification.units.length || verification.stale || verification.units.some(unit => !unit.matched))) process.exitCode = 1; }
+      else {
+        const layoutPdf = await ready(session, config.engine !== 'lualatex'); session.pauseBackground(true);
+        const verification = command === 'verify' ? await session.verify() : undefined;
+        let pdfComparison;
+        if (command === 'verify' && args.includes('--pdf')) {
+          const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rtex-verify-'));
+          try {
+            const exported = await session.exportPdf(path.join(temp, 'clean.pdf'));
+            if (!exported.converged) throw new Error('Clean PDF export did not converge');
+            pdfComparison = await comparePdfs(layoutPdf, exported.path, { dpi: option('dpi') === undefined ? undefined : Number(option('dpi')), tolerance: option('tolerance') === undefined ? undefined : Number(option('tolerance')), maxDifferentRatio: option('max-different-ratio') === undefined ? undefined : Number(option('max-different-ratio')), pdfinfo: option('pdfinfo'), pdftoppm: option('pdftoppm') });
+          } finally { await fs.rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
+        }
+        process.stdout.write(JSON.stringify({ ...session.stats(), memory: process.memoryUsage(), cpu: process.cpuUsage(), verification, pdfComparison }) + '\n');
+        if (verification && (!verification.units.length || verification.stale || verification.units.some(unit => !unit.matched)) || pdfComparison && !pdfComparison.equal) process.exitCode = 1;
+      }
     } finally { session.close(); }
     return;
   }
   if (command !== 'serve') {
-    process.stdout.write(`rtex-ts ${version}\nUsage: rtex-ts doctor [--engine lualatex|xelatex|pdflatex] [--tex PATH]\n       rtex-ts serve --project DIR --main main.tex [--build DIR] [--lualatex PATH]\n       rtex-ts export --project DIR --main main.tex --out final.pdf [--engine ENGINE]\n       rtex-ts verify|profile --project DIR --main main.tex\n       rtex-ts dl2json --input drawing.rtdl\n\nJSON-lines on stdin/stdout. See docs/embedding.md.\n`);
+    process.stdout.write(`rtex-ts ${version}\nUsage: rtex-ts doctor [--engine lualatex|xelatex|pdflatex] [--tex PATH]\n       rtex-ts serve --project DIR --main main.tex [--build DIR] [--lualatex PATH]\n       rtex-ts export --project DIR --main main.tex --out final.pdf [--engine ENGINE]\n       rtex-ts verify|profile --project DIR --main main.tex [--pdf]\n       rtex-ts pdf-compare --a baseline.pdf --b candidate.pdf [--dpi 96]\n       rtex-ts dl2json --input drawing.rtdl\n\nJSON-lines on stdin/stdout. See docs/embedding.md.\n`);
     if (command && !['--help', '-h'].includes(command)) process.exitCode = 1;
     return;
   }

@@ -55,3 +55,29 @@ test('recorded index tools are whitelisted and passed as argument arrays',()=>{
  assert.deepEqual(indexCommand('makeindex -s style.ist names.idx','names.idx'),{program:'makeindex',args:['-q','-s','style.ist','names.idx']});
  assert.deepEqual(indexCommand('sh -c arbitrary names.idx','names.idx'),{program:'makeindex',args:['-q','names.idx']});
 });
+
+test('balanced macro inference supports bare names, operators and safe environments without trusting deferred declarations',()=>{
+ const policy=new Policy(String.raw`\usepackage{amsmath}\usepackage[table]{xcolor}
+\newcommand\strong[1]{\textbf{#1}}
+\def\word{Hello}
+\DeclareMathOperator*{\rank}{rank}
+\newcommand{\fake}{\newtheorem{backdoor}{Unsafe}}
+\newcommand\defaulted[1][\newtheorem{defaultbackdoor}{Unsafe}]{#1}
+\newenvironment{loud}{\bfseries}{ }
+\newenvironment{points}{\begin{itemize}}{\end{itemize}}
+\newenvironment{unsafe}{\global\def\state{a}}{}
+\newcommand{\changed}{safe}\def\changed#1{\global\def\state{#1}}
+\NewDocumentCommand\optional{O{\global\def\state{a}}m}{#2}
+\newcommand % comment between command and name
+\commented[1]% between arguments
+{\emph{#1}}`);
+ for(const source of [String.raw`\strong{Text} \word \commented{ok}`,String.raw`$\rank A$`,String.raw`\begin{loud}Text\end{loud}`,String.raw`\begin{points}\item One\end{points}`])assert.deepEqual(policy.classify(source).reasons,[],source);
+ assert.ok(policy.unitEnvs.has('points'));assert.ok(policy.innerEnvs.has('loud'));assert.ok(!policy.unitEnvs.has('unsafe'));assert.ok(!policy.unitEnvs.has('backdoor'));assert.ok(!policy.unitEnvs.has('defaultbackdoor'));assert.ok(policy.packages.has('colortbl'));
+ for(const source of [String.raw`\rank A`,String.raw`\changed{text}`,String.raw`\optional{text}`,String.raw`\defaulted`,String.raw`\begin{unsafe}X\end{unsafe}`])assert.ok(policy.classify(source).reasons.length,source);
+ const renewed=new Policy(String.raw`\newenvironment{safe}{}{}\renewenvironment{safe}{\global\def\x{bad}}{}`);assert.ok(renewed.classify(String.raw`\begin{safe}X\end{safe}`).reasons.length);
+});
+
+test('TeX environment inherits installation font cache unless an explicit cache is supplied',async t=>{
+ const {environment}=await import('../dist/process.js');const cache=fs.mkdtempSync(path.join(os.tmpdir(),'rtex-font-test-'));t.after(()=>fs.rmSync(cache,{recursive:true,force:true}));
+ const inherited=process.env.TEXMFCACHE;assert.equal(environment(cache,'main.tex').TEXMFCACHE,inherited);assert.equal(environment(cache,'main.tex',cache).TEXMFCACHE,cache.replaceAll('\\','/'));
+});

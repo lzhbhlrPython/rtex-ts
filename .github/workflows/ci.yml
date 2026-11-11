@@ -58,3 +58,9 @@ jobs:
           key: ${{ steps.tex-cache.outputs.cache-primary-key }}
       - run: npm ci
       - run: npm run test:tex
+      - name: Verify optional Poppler PDF oracle (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+          RTEX_TEST_PDF_WITH_TEX=1 npm run test:pdf

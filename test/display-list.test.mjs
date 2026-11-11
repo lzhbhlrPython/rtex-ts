@@ -19,3 +19,8 @@ test('math ownership decodes glyph/field roles and rejects corrupt counts/roles'
  bytes[40]=99;assert.throws(()=>decodeDisplayList(encoded([record(0x29,bytes),record(0xff)])),/Invalid math ownership/);
  bytes.writeUInt32LE(0xffffffff,0);assert.throws(()=>decodeDisplayList(encoded([record(0x29,bytes),record(0xff)])),/count/);
 });
+
+test('unresolvable font files and missing glyph IDs require PDF fallback',()=>{
+ const dl=decodeDisplayList(encoded([record(0xff)]));dl.fonts['1']={filename:'font.otf',size:655360,id:1};dl.other=[['g',1,65,4,0,0,100,0]];assert.equal(isExact(dl),true);
+ dl.other[0][3]=null;assert.equal(isExact(dl),false);dl.other[0][3]=4;dl.fonts['1'].filename='';assert.equal(isExact(dl),false);
+});

@@ -1,6 +1,6 @@
 {
   "name": "rtex-ts",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Experimental TypeScript incremental LuaLaTeX sessions for Node.js, derived from realtime-tex",
   "type": "module",
   "license": "MIT",
@@ -45,7 +45,9 @@
     "prepack": "npm run build",
     "test:pack": "npm run build && node test/pack.integration.mjs",
     "benchmark": "npm run build && node scripts/benchmark.mjs",
-    "benchmark:pictures": "npm run build && node scripts/benchmark-pictures.mjs"
+    "benchmark:pictures": "npm run build && node scripts/benchmark-pictures.mjs",
+    "test:pdf": "npm run build && node --test test/pdf.integration.mjs",
+    "benchmark:startup": "npm run build && node scripts/benchmark-startup.mjs"
   },
   "keywords": [
     "latex",

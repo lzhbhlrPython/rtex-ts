@@ -23,10 +23,10 @@ export function findLuaLaTeX(requested?: string): string {
   for (const candidate of ['/Library/TeX/texbin/lualatex', '/usr/local/bin/lualatex', '/usr/bin/lualatex']) if (existsSync(candidate)) return candidate;
   return process.platform === 'win32' ? 'lualatex.exe' : 'lualatex';
 }
-export function environment(root: string, mainFile: string, cache: string): NodeJS.ProcessEnv {
-  mkdirSync(cache, { recursive: true });
+export function environment(root: string, mainFile: string, cache?: string): NodeJS.ProcessEnv {
+  if (cache) mkdirSync(cache, { recursive: true });
   const sep = process.platform === 'win32' ? ';' : ':';
-  return { ...process.env, RTEX_REQ: '', RTEX_PROJECT_DIR: texPath(root), RTEX_MAIN_DIR: path.dirname(mainFile) === '.' ? undefined : texPath(path.dirname(mainFile)), TEXMFCACHE: cache,
+  return { ...process.env, RTEX_REQ: '', RTEX_PROJECT_DIR: texPath(root), RTEX_MAIN_DIR: path.dirname(mainFile) === '.' ? undefined : texPath(path.dirname(mainFile)), ...(cache ? { TEXMFCACHE: texPath(cache) } : {}),
     TEXINPUTS: `${texPath(path.join(SUPPORT_DIR, 'latex'))}//${sep}${process.env.TEXINPUTS || ''}`,
     LUAINPUTS: `${texPath(SUPPORT_DIR)}//${sep}${process.env.LUAINPUTS || ''}`,
     openout_any: 'a', MIKTEX_ALLOWUNSAFEOUTPUTFILES: '1', max_print_line: '10000' };

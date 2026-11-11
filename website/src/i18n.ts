@@ -26,6 +26,10 @@ export const text = {
     sync: "同步编辑 p50",
     benchNote:
       "合成英文 article，单字符修改，首次探针不计。复杂环境、冷启动和完整排版有不同开销。",
+    startupTitle: "启动优化 · 首次预览中位数",
+    startupBefore: "全新独立字体缓存",
+    startupAfter: "复用安装字体缓存",
+    startupNote: "0.1.9 本机 5 组单页对照；TeX 进程均新启动，安装字体缓存已预热。不代表首次安装耗时，不含宿主绘制。",
     cacheTitle: "图片缓存 · 完整后台布局中位数",
     cacheOff: "关闭",
     cacheOn: "开启",
@@ -91,6 +95,10 @@ export const text = {
     sync: "Synchronous edit p50",
     benchNote:
       "Synthetic English article, single-character edits, initial probe excluded. Complex environments, cold start and full layout have different costs.",
+    startupTitle: "Startup · median first preview",
+    startupBefore: "Fresh isolated font cache",
+    startupAfter: "Reused installation font cache",
+    startupNote: "Local 0.1.9: five one-page samples per mode, new TeX processes, already warm installation font cache. Not first-install time; host rendering excluded.",
     cacheTitle: "Picture cache · median full background layout",
     cacheOff: "Off",
     cacheOn: "On",

@@ -1,6 +1,7 @@
 /** Policy and source/context checks adapted from realtime-tex eligibility.rs (MIT). */
 import { texTokens, groupAt } from './tex-syntax.js';
 import { maskTeX } from './document.js';
+import { definitions } from './definitions.js';
 import * as T from './eligibility-tables.js';
 export interface PolicyOptions { eligibility?: 'probe' | 'allowlist'; trustedMacros?: string[]; unitEnvs?: string[]; mathOwnerAttribute?: number }
 export interface Classification { kind: 'par' | 'env' | 'heading'; name?: string; reasons: string[] }
@@ -12,27 +13,42 @@ export class Policy {
   readonly unitEnvs = new Set<string>();
   readonly trusted = new Set<string>();
   private definitions = new Map<string, string>();
+  private mathOnly = new Set<string>();
+  readonly innerEnvs = new Set<string>();
   constructor(readonly preamble: string, readonly options: PolicyOptions = {}) {
     for (const name of options.trustedMacros || []) this.trusted.add(name.replace(/^\\/, ''));
     for (const name of options.unitEnvs || []) this.unitEnvs.add(name);
+    const extracted = definitions(preamble);
+    let declarationDepth = 0, definitionIndex = 0;
     for (const token of texTokens(preamble)) {
+      while (definitionIndex < extracted.length && token.start >= extracted[definitionIndex].end) definitionIndex++;
+      const definition = extracted[definitionIndex]; if (definition && token.start >= definition.start && token.start < definition.end) continue;
+      if (token.kind === 'open') { declarationDepth++; continue; }
+      if (token.kind === 'close') { declarationDepth--; continue; }
+      if (token.kind === 'command' && token.value === 'begingroup') { declarationDepth++; continue; }
+      if (token.kind === 'command' && token.value === 'endgroup') { declarationDepth--; continue; }
+      if (declarationDepth) continue;
       if (token.kind !== 'command') continue;
       let from = token.end;
       if (preamble[from] === '*') from++;
       const optional = groupAt(preamble, from, '[', ']'); if (optional) from = optional.end;
       const arg = groupAt(preamble, from);
       if (!arg) continue;
-      if (['usepackage', 'RequirePackage', 'documentclass'].includes(token.value)) for (const pkg of arg.value.split(',')) this.packages.add(pkg.trim());
-      if (['newtheorem', 'newlist', 'newenvironment', 'NewDocumentEnvironment'].includes(token.value)) this.unitEnvs.add(arg.value);
-      if (['newcommand', 'renewcommand', 'providecommand', 'DeclareRobustCommand', 'NewDocumentCommand', 'RenewDocumentCommand'].includes(token.value) && /^\\[A-Za-z@]+$/.test(arg.value)) {
-        let offset = arg.end;
-        for (let i = 0; i < 2; i++) { const optional = groupAt(preamble, offset, '[', ']'); if (optional) offset = optional.end; }
-        if (token.value.endsWith('DocumentCommand')) { const signature = groupAt(preamble, offset); if (signature) offset = signature.end; }
-        const body = groupAt(preamble, offset); if (body) this.definitions.set(arg.value.slice(1), body.value);
-      }
+      if (['usepackage', 'RequirePackage', 'documentclass'].includes(token.value)) for (const pkg of arg.value.split(',')) { this.packages.add(pkg.trim()); if (pkg.trim() === 'xcolor' && optional?.value.split(',').some(value => value.trim() === 'table')) this.packages.add('colortbl'); }
+      if (['newtheorem', 'newlist'].includes(token.value)) this.unitEnvs.add(arg.value);
     }
+    const declared = [...new Map(extracted.map(definition => [definition.name, definition])).values()];
+    for (const definition of declared) if (definition.endBody === undefined) { this.definitions.set(definition.name, definition.body); if (definition.mathOnly) this.mathOnly.add(definition.name); }
+    if (this.packages.has('hyperref')) this.packages.add('url');
+    if (this.packages.has('graphics')) this.packages.add('graphicx');
     if (this.packages.has('mathtools')) this.packages.add('amsmath');
     if (this.packages.has('unicode-math') || this.packages.has('amsfonts')) this.packages.add('amssymb');
+    // Two passes allow wrappers around previously inferred environments; unsafe bodies never become eligible.
+    for (let pass = 0; pass < 2; pass++) for (const definition of declared) if (definition.endBody !== undefined && !this.classify('{' + definition.body + ' x ' + definition.endBody + '}').reasons.length) {
+      let first; for (const token of texTokens(definition.body)) if (token.kind !== 'text' || token.value.trim()) { first = token; break; }
+      if (first?.kind === 'begin' && (this.unitEnvs.has(first.value) || T.LIST_ENVS.has(first.value) || T.DISPLAY_ENVS.has(first.value) || T.AMSMATH_DISPLAY_ENVS.has(first.value) || ['quote', 'quotation', 'center', 'flushleft', 'flushright', 'proof'].includes(first.value))) this.unitEnvs.add(definition.name);
+      else this.innerEnvs.add(definition.name);
+    }
   }
   classify(source: string, stack: Set<string> = new Set()): Classification {
     const text = maskTeX(source), reasons: string[] = [], env: string[] = [];
@@ -57,7 +73,7 @@ export class Policy {
       }
       if (token.kind === 'begin') {
         env.push(token.value);
-        if (!T.INNER_ENVS.has(token.value) && !T.DISPLAY_ENVS.has(token.value) && !T.AMSMATH_DISPLAY_ENVS.has(token.value) && !T.AMSMATH_INNER_ENVS.has(token.value) && !T.LIST_ENVS.has(token.value) && !this.unitEnvs.has(token.value) && !['figure', 'figure*', 'table', 'table*', 'quote', 'quotation', 'verse', 'center', 'flushleft', 'flushright', 'abstract', 'proof', 'tabbing', 'thebibliography'].includes(token.value)) vocabulary('DisallowedEnvironment:' + token.value);
+        if (!this.innerEnvs.has(token.value) && !T.INNER_ENVS.has(token.value) && !T.DISPLAY_ENVS.has(token.value) && !T.AMSMATH_DISPLAY_ENVS.has(token.value) && !T.AMSMATH_INNER_ENVS.has(token.value) && !T.LIST_ENVS.has(token.value) && !this.unitEnvs.has(token.value) && !['figure', 'figure*', 'table', 'table*', 'quote', 'quotation', 'verse', 'center', 'flushleft', 'flushright', 'abstract', 'proof', 'tabbing', 'thebibliography'].includes(token.value)) vocabulary('DisallowedEnvironment:' + token.value);
         continue;
       }
       if (token.kind === 'end') { if (env.pop() !== token.value) reasons.push('UnbalancedEnvironment'); continue; }
@@ -79,7 +95,7 @@ export class Policy {
       }
       if (this.definitions.has(command) && !this.trusted.has(command)) {
         if (stack.has(command) || stack.size >= 16) reasons.push('RecursiveMacro:' + command);
-        else { const seen = new Set(stack); seen.add(command); reasons.push(...this.classify(this.definitions.get(command)!, seen).reasons); }
+        else { const seen = new Set(stack); seen.add(command); if (this.mathOnly.has(command) && !math && !env.some(name => T.DISPLAY_ENVS.has(name) || T.AMSMATH_DISPLAY_ENVS.has(name) || T.AMSMATH_INNER_ENVS.has(name) || name === 'math')) reasons.push('MacroOutsideMath:' + command); reasons.push(...this.classify(this.definitions.get(command)!, seen).reasons); }
         continue;
       }
       if (PRIMITIVES.has(command)) { reasons.push('OutsideState:' + command); continue; }

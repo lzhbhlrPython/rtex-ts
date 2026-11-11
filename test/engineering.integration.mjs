@@ -36,7 +36,7 @@ Text $\attribute42=17 \frac{x}{y}$.
 
 Second paragraph.
 \end{document}`;
- const f=await fixture(t,source,{mathOwnerAttribute:42,fastBudgetMs:1000});const session=await f.open();await event(session,e=>e.event==='EngineState'&&e.state==='Ready');session.pauseBackground(true);const verification=await session.verify();assert.equal(verification.stale,false);assert.ok(verification.units.length);assert.ok(verification.units.every(unit=>unit.matched));const pending=event(session,e=>e.event==='ParagraphUpdate'&&e.status==='ok');source=source.replace('Text','Live');assert.equal(session.setDocument('chapters/main.tex',source).routed,'fast');const live=await pending;assert.ok(live.dl.math_owners?.glyphs.some(g=>g.owner===17),'binary live math owners');
+ const f=await fixture(t,source,{mathOwnerAttribute:42,fastBudgetMs:1000});const session=await f.open();await event(session,e=>e.event==='EngineState'&&e.state==='Ready');session.pauseBackground(true);const verification=await session.verify();assert.equal(verification.stale,false);assert.ok(verification.units.length);assert.ok(verification.units.every(unit=>unit.matched),JSON.stringify(verification));const pending=event(session,e=>e.event==='ParagraphUpdate'&&e.status==='ok');source=source.replace('Text','Live');assert.equal(session.setDocument('chapters/main.tex',source).routed,'fast');const live=await pending;assert.ok(live.dl.math_owners?.glyphs.some(g=>g.owner===17),'binary live math owners');
  const standbyDeadline=Date.now()+30000;while(!session.stats().warmBackground&&Date.now()<standbyDeadline)await new Promise(r=>setTimeout(r,25));assert.equal(session.stats().warmBackground,true,'standby preamble is actually loaded');const version=session.versions().layout_version;const updated=event(session,e=>e.event==='LayoutUpdate'&&e.versions.source_revision===1);session.pauseBackground(false);const layout=await updated;assert.ok(layout.versions.layout_version>version);assert.equal(layout.convergence.state,'Converged');assert.ok(layout.pages_changed.some(p=>p.dl.math_owners?.glyphs.some(g=>g.owner===17)),'page math owners');
 });
 test('LuaLaTeX: Biber and imakeidx named index work in layout and plain export',{timeout:240000},async t=>{
@@ -72,4 +72,21 @@ Ordinary paragraph after the drawing.
  await event(session,e=>e.event==='EngineState'&&e.state==='Ready');session.pauseBackground(true);source=source.replace('Ordinary paragraph','Updated ordinary paragraph');session.setDocument('chapters/main.tex',source);let pending=event(session,e=>e.event==='LayoutUpdate'&&e.versions.source_revision===1);session.pauseBackground(false);layout=await pending;assert.equal(layout.pages_total,2);assert.equal(session.stats().pictureCache.manifestHits,2);
  source=source.replace('{1,0,0}','{0,0,1}').replace('(3,2)','(4,2)');pending=event(session,e=>e.event==='LayoutUpdate'&&e.versions.source_revision===2);session.setDocument('chapters/main.tex',source);layout=await pending;assert.equal(layout.convergence.state,'Converged');assert.equal(layout.pages_total,2);assert.ok(session.stats().pictureCache.entries>=4);
  const result=await session.exportPdf(path.join(f.root,'uncached.pdf'));assert.equal(result.converged,true);
+});
+
+test('LuaLaTeX: inferred bare macros and custom environment retain successful old-source probes',{timeout:180000},async t=>{
+ let source=String.raw`\documentclass{article}
+\usepackage{fontspec}\setmainfont{Latin Modern Roman}
+\usepackage{amsmath}\usepackage{unicode-math}
+\newcommand\rtexStrong[1]{\textbf{#1}}
+\def\word{Hello}
+\DeclareMathOperator{\rank}{rank}
+\newenvironment{loud}{\bfseries}{}
+\begin{document}
+\rtexStrong{First} \word, $\rank A$.
+
+Text \begin{loud}Ordinary text.\end{loud} after.
+\end{document}`;
+ const f=await fixture(t,source,{fastBudgetMs:1000,warmBackground:false});const session=await f.open();await event(session,e=>e.event==='EngineState'&&e.state==='Ready');session.pauseBackground(true);assert.ok(session.stats().startup.first_layout_ms>0);assert.ok(session.stats().startup.ready_ms>=session.stats().startup.first_layout_ms);
+ const verification=await session.verify();assert.ok(verification.units.length>=2);assert.ok(verification.units.every(unit=>unit.matched),JSON.stringify(verification));const pending=event(session,e=>e.event==='ParagraphUpdate'&&e.status==='ok');source=source.replace('First','Changed');assert.equal(session.setDocument('chapters/main.tex',source).routed,'fast');await pending;
 });

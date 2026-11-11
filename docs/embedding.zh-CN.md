@@ -94,6 +94,14 @@ stdin 关闭时结束会话，stdout 仅输出 JSON-lines。慢消费者的待�
 CLI 在收到换行前就限制每条请求的 UTF-8 字节数为 8 MiB。输入消费遵循输出背压，不建立无限请求队列。导出异步运行，因此期间仍能处理 `status` 与 `quit`；拒绝第二个并发导出。
 
 
-`pause_background` 需要布尔字段 `paused`。`verify` 异步执行，同一时间最多一次。独立命令新增 `export --out FILE`、`verify`、`profile` 和 `dl2json --input FILE`。`profile` 是 Node 内存/CPU 快照，不是 TeX 进程树资源或延迟分析；`verify` 仅检查实时候选，不检查 PDF 视觉一致性。配置参数包括 `--engine`、`--tex`、`--eligibility`、`--trusted-macros`、`--unit-envs`、`--math-owner-attribute`、`--bib-tool`、`--no-index`、`--no-warm-background`。
+`pause_background` 需要布尔字段 `paused`。`verify` 异步执行，同一时间最多一次。独立命令新增 `export --out FILE`、`verify`、`profile` 和 `dl2json --input FILE`。`profile` 是 Node 内存/CPU 快照，不是 TeX 进程树资源或延迟分析；不带 `--pdf` 的 `verify` 仅检查实时候选。配置参数包括 `--engine`、`--tex`、`--eligibility`、`--trusted-macros`、`--unit-envs`、`--math-owner-attribute`、`--bib-tool`、`--no-index`、`--no-warm-background`。
 
 辅助工具基于可信文档请求执行：`auto` 在有 `.bcf` 时选 Biber，否则遇 `\bibdata` 时用 BibTeX；索引程序限 makeindex/texindy/xindy/truexindy/upmendex/mendex。工具及文档依赖需要另装，失败保留上次有效布局。
+
+## 启动缓存与规则推断（0.1.9）
+
+默认沿用 TeX 安装的字体缓存（包括现有 `TEXMFCACHE`），不再为每个会话强制创建全新字体缓存。此缓存由 TeX/宿主管理，`close()` 不删除。受限或需隔离的宿主可传 `fontCacheDir`（CLI：`--font-cache DIR`），应位于项目源码之外，或本会话构建目录内；可跨会话复用，首次生成仍有开销。需要保留目录写入权限。
+
+推断支持带花括号或裸控制序列的 new/renew/providecommand、无参数 `\def`、DeclareMathOperator、仅含必选 `m` 参数的 xparse 定义，以及经过检查的自定义内联/块环境。定义体平衡扫描，不会把延迟执行的声明当作顶层声明；不支持的签名、递归、未知或有全局副作用的定义仍回退后台。标题包装宏、文档类特殊规则、完整文本/数学模式推断尚未移植。扩大候选范围仍需通过旧源码探针，不绕过上下文检查。
+
+`stats().startup` 提供首次布局及实时就绪耗时。`verify --pdf` 和 `pdf-compare` 见[验证工具](verification.zh-CN.md)。

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.9
+
+- Infer bare/braced macro names, parameterless def, math operators and conservative custom environments; reject deferred declaration pollution and retain old-source probes.
+- Add optional Poppler `pdf-compare`, `verify --pdf` and a library API, with strict pixel defaults, bounds, exit codes and missing-tool failures.
+- Reuse the TeX installation font cache by default; add explicit `fontCacheDir`, startup timings and an alternating startup benchmark. First font generation remains slow.
+- Require PDF fallback for unresolvable font files/glyph IDs; retain unchanged span identity when custom block rules change.
+- Keep bilingual verification docs/product pages synchronized and the website outside npm archives.
+
 ## 0.1.8
 
 - Adapt ordered picture scanning, source/setup hashes, conservative effect guards, capture manifests, mismatch quarantine and cache eviction from pinned upstream 0.0.7.

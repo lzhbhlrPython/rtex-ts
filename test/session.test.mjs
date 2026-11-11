@@ -30,3 +30,18 @@ test('a build-directory alias cannot resolve to the project or escape from insid
  const alias=path.join(outside,'alias');fs.symlinkSync(root,alias,'junction');await assert.rejects(Session.open({projectRoot:root,mainFile:'main.tex',buildDir:alias}),/cannot contain/);
  const escape=path.join(root,'build-alias');fs.symlinkSync(outside,escape,'junction');await assert.rejects(Session.open({projectRoot:root,mainFile:'main.tex',buildDir:escape}),/escapes/);
 });
+
+test('inferred block rules apply at open and after preamble changes while unchanged IDs survive',async t=>{
+ const root=fixture(t);let text=String.raw`\documentclass{article}
+\newenvironment{custom}{\begin{quote}}{\end{quote}}
+\begin{document}
+First paragraph.
+\begin{custom}Wrapped text.\end{custom}
+
+Second paragraph.
+\end{document}`;fs.writeFileSync(path.join(root,'main.tex'),text);
+ const session=await Session.open({projectRoot:root,mainFile:'main.tex'});t.after(()=>session.close());session.pauseBackground(true);
+ assert.equal(session.spans('main.tex').find(s=>s.text.includes('Wrapped')).kind,'environment');const second=session.spans('main.tex').find(s=>s.text.includes('Second')).id;
+ text=text.replace('\\begin{quote}','\\bfseries').replace('\\end{quote}','');session.setDocument('main.tex',text);assert.equal(session.spans('main.tex').find(s=>s.text.includes('Wrapped')).kind,'paragraph');assert.equal(session.spans('main.tex').find(s=>s.text.includes('Second')).id,second);session.close();
+ await assert.rejects(Session.open({projectRoot:root,mainFile:'main.tex',fontCacheDir:path.join(root,'author-cache')}),/outside project/);assert.equal(fs.existsSync(path.join(root,'author-cache')),false);
+});

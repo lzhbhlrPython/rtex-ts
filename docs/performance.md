@@ -49,3 +49,20 @@ Measured on the same M1 Pro/macOS/Node 26.5.0/TeX Live 2023 environment on 2026-
 | On | 1.05 s | 1.43 s | 14.65 s | 12 |
 
 The median decreased by about 71% in this preliminary 20-sample comparison. Cold start did not improve. The table includes every sample; no outlier was removed. These figures do not describe arbitrary drawings or prove a cross-platform speedup. Cached drawings remain PDF fallback, not live glyph overlays. A separate local visual fixture kept pagination/positioning and differed at 117 antialiasing pixels along one cropped border at 144 dpi; cache reuse is not a pixel-identity guarantee. Clean export bypasses the cache.
+
+## Startup and font cache (0.1.9)
+
+```sh
+npm run benchmark:startup -- --samples 5 --out .ai-notes/startup.json
+```
+
+0.1.9 no longer forces a new `TEXMFCACHE` for every session. It follows the TeX installation and existing environment by default. Set `fontCacheDir` / `--font-cache DIR` for isolation. TeX/the host owns the cache; session close does not delete it.
+
+Measured 2026-11-11 on the M1 Pro/macOS ARM64, Node 26.5.0, TeX Live 2023 environment above: a 139-byte, one-page fontspec/Latin Modern Roman article with inline math, five samples per mode in alternating order. Each session/TeX process is new; standby and picture caching are off. The installation font cache already exists and is not cleared; fresh-isolated uses a new directory each time. Timing begins at session construction and ends at LayoutUpdate / EngineState Ready. It is not a per-unit probe success rate and excludes host rendering.
+
+| Font cache | Median first preview | Median live-engine ready | Ready min–max |
+| --- | ---: | ---: | ---: |
+| Fresh isolated cache each time | 11.74 s | 12.46 s | 11.81–18.18 s |
+| Reused installation cache (new default) | 1.83 s | 2.54 s | 2.42–2.97 s |
+
+Median first preview decreased by about 84%, live readiness by about 80%. Every sample is retained, including the slowest. Built JavaScript SHA-256: `54fb320f559fb017862a823bf5a60cc4851e3d50b57d49b1e9f0b2b3cd351015`. This is a small, single-machine cache-policy comparison, not a speed guarantee for every document or platform. **Initial installation or a missing font cache still requires database generation**: a separate preliminary observation took about 11.8 seconds to first layout. Do not advertise 1.83 seconds for first installation. Two TeX passes and live-engine startup still cost time; measure complex projects separately.
