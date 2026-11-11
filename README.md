@@ -6,7 +6,7 @@ Experimental incremental LuaLaTeX sessions for Node.js, implemented in TypeScrip
 
 **rtex-ts closely adapts [realtime-tex](https://github.com/HenryXiaoYang/realtime-tex) by Henry Yang and its contributors.** Its Lua/TeX runtime is retained from upstream under MIT. The technique follows [Clemens Lode's TUG 2026 paper](https://www.tug.org/tug2026/preprints/lode-realtime.pdf). This is an independent, narrower TypeScript adaptation, not an official upstream release or a feature-complete replacement.
 
-0.1.10 adds balanced macro/environment inference, optional Poppler PDF raster comparison and reuse of the TeX installation font cache instead of rebuilding it for every session. Initial font generation can still be slow; see [verification tools](docs/verification.md) and [performance](docs/performance.md).
+0.1.11 adds balanced macro/environment inference, optional Poppler PDF raster comparison and reuse of the TeX installation font cache instead of rebuilding it for every session. Initial font generation can still be slow; see [verification tools](docs/verification.md) and [performance](docs/performance.md).
 
 ## What it does
 

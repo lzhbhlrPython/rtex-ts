@@ -11,7 +11,7 @@ rtex-ts pdf-compare --a baseline.pdf --b candidate.pdf --dpi 144
 rtex-ts profile --project ./paper --main main.tex
 ```
 
-0.1.10 起，`verify --pdf` 还会把捕获 PDF 与同一缓冲区独立、已收敛的普通导出 PDF 比较。`pdf-compare` 可比较任意引擎生成的 PDF。两者需要**可选的外部 Poppler**（`pdfinfo`、`pdftoppm`）；请单独安装，或传入 `--pdfinfo PATH --pdftoppm PATH`。缺少工具、PDF 无效、超时、超过限制都会失败并向 stderr 输出诊断，不能算作通过。JSON 结果写入 stdout；匹配时退出码为 0，不匹配或执行失败时为 1。
+0.1.11 起，`verify --pdf` 还会把捕获 PDF 与同一缓冲区独立、已收敛的普通导出 PDF 比较。`pdf-compare` 可比较任意引擎生成的 PDF。两者需要**可选的外部 Poppler**（`pdfinfo`、`pdftoppm`）；请单独安装，或传入 `--pdfinfo PATH --pdftoppm PATH`。缺少工具、PDF 无效、超时、超过限制都会失败并向 stderr 输出诊断，不能算作通过。JSON 结果写入 stdout；匹配时退出码为 0，不匹配或执行失败时为 1。
 
 对照工具逐页比较 RGB 渲染像素，默认 96 dpi（范围 36–300）。不影响渲染的字节、元数据变化不会导致失败；页数或栅格尺寸变化始终失败。`--tolerance N` 允许每像素最大颜色通道差异（0–255）；`--max-different-ratio R` 允许超过该容差的像素比例（0–1）。两项默认均为**零**。JSON 记录阈值、像素尺寸、不同像素数量/比例和最大通道差异。阈值是调用方明确选择的验收策略，不能证明等价。图片缓存边缘可能存在抗锯齿差异，不应静默放宽失败测试。
 

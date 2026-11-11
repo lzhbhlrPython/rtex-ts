@@ -6,7 +6,7 @@
 
 **本项目高度参考 Henry Yang 及贡献者的 [realtime-tex](https://github.com/HenryXiaoYang/realtime-tex)。** Lua/TeX 运行层保留上游源码与 MIT 许可；实时段落排版技术来自 [Clemens Lode 的 TUG 2026 论文](https://www.tug.org/tug2026/preprints/lode-realtime.pdf)。这是独立、能力范围较小的 TypeScript 改写，不是上游官方发行版，也不宣称完整移植了所有功能。
 
-0.1.10 补充平衡宏/环境定义推断、可选 Poppler PDF 栅格对照，并默认复用 TeX 安装的字体缓存，避免每次新会话都重建。首次字体生成仍可能很慢；详见[验证工具](docs/verification.zh-CN.md)及[性能](docs/performance.zh-CN.md)。
+0.1.11 补充平衡宏/环境定义推断、可选 Poppler PDF 栅格对照，并默认复用 TeX 安装的字体缓存，避免每次新会话都重建。首次字体生成仍可能很慢；详见[验证工具](docs/verification.zh-CN.md)及[性能](docs/performance.zh-CN.md)。
 
 ## 工作方式
 

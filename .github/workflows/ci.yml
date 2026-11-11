@@ -58,9 +58,22 @@ jobs:
           key: ${{ steps.tex-cache.outputs.cache-primary-key }}
       - run: npm ci
       - run: npm run test:tex
+      - uses: actions/cache/restore@v6
+        if: runner.os == 'Linux'
+        id: poppler-cache
+        with:
+          path: build/pdf-tools/prefix
+          key: poppler-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/install-poppler-ci.sh') }}
+      - name: Install optional Poppler oracle (Linux)
+        if: runner.os == 'Linux'
+        timeout-minutes: 8
+        run: bash scripts/install-poppler-ci.sh
+      - uses: actions/cache/save@v6
+        if: runner.os == 'Linux' && steps.poppler-cache.outputs.cache-hit != 'true'
+        with:
+          path: build/pdf-tools/prefix
+          key: ${{ steps.poppler-cache.outputs.cache-primary-key }}
       - name: Verify optional Poppler PDF oracle (Linux)
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y poppler-utils
-          RTEX_TEST_PDF_WITH_TEX=1 npm run test:pdf
+        timeout-minutes: 5
+        run: RTEX_TEST_PDF_WITH_TEX=1 npm run test:pdf

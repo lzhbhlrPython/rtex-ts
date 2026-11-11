@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.1.10
+## 0.1.11
+
+- Install the Linux CI oracle with checksum-pinned official micromamba and pinned conda-forge Poppler instead of failing Ubuntu mirror DNS; cache the tool prefix and bound install/test times.
+- Include unpublished 0.1.9–0.1.10 features and the Windows fixture fix without adding npm runtime dependencies.
+
+## 0.1.10 (unpublished)
 
 - Normalize the new Windows font-cache test fixture with RUNNER_TEMP and realpathSync.native instead of passing an 8.3 temporary alias to TeX path validation.
 - Include the unpublished 0.1.9 macro, PDF oracle, startup-cache and bilingual site changes; this fixture fix does not change the measured performance path.

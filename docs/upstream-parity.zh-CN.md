@@ -4,7 +4,7 @@
 
 验收基准为 realtime-tex **0.0.7**，提交 `fcff7a5c7f33a288ecf40db886843754c62bbdfd`。此表记录工程能力覆盖，不表示完整兼容。保留 Node API；Rust crate 和 C ABI 不在已确认范围内。
 
-| 能力 | rtex-ts 0.1.10 | 证据与边界 |
+| 能力 | rtex-ts 0.1.11 | 证据与边界 |
 | --- | --- | --- |
 | 未保存缓冲区、字节编辑、稳定单元身份 | 已实现 | UTF-8、嵌套分组、注释/逐字内容、未完成输入和过期结果测试 |
 | 段落/数学/标题/环境分段 | 已改写 | 平衡扫描与自定义单元环境；捕获映射不明确时仍走后台 |
@@ -20,4 +20,4 @@
 | Rust ABI/API 兼容 | 范围外 | 独立 Node API，无 Rust 程序和原生 npm 依赖 |
 | XeLaTeX/pdfLaTeX | 新增 PDF 路径 | 完整 PDF 布局/导出，无 Lua 捕获、实时字形或数学归属元数据 |
 
-0.1.7 的新管道、后台引擎、辅助工具和多引擎 PDF 已通过三平台 CI；0.1.8 图片缓存已通过单独 CI；0.1.10 修改需要新 CI。见[兼容性](compatibility.zh-CN.md)及[性能方法](performance.zh-CN.md)。
+0.1.7 的新管道、后台引擎、辅助工具和多引擎 PDF 已通过三平台 CI；0.1.8 图片缓存已通过单独 CI；0.1.11 修改需要新 CI。见[兼容性](compatibility.zh-CN.md)及[性能方法](performance.zh-CN.md)。

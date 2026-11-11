@@ -1,6 +1,11 @@
 # 更新记录
 
-## 0.1.10
+## 0.1.11
+
+- Linux CI 用带校验和的官方 micromamba 和固定 conda-forge Poppler 替代 DNS 失败的 Ubuntu 软件源；缓存工具环境并限制安装/验证耗时。
+- 包含未发布 0.1.9–0.1.10 的全部功能与 Windows 测试路径修复，不增加 npm 运行时依赖。
+
+## 0.1.10（未发布）
 
 - 修正新增字体缓存单测在 Windows 的短路径夹具：使用 RUNNER_TEMP 并经 realpathSync.native 规范化。
 - 包含未发布的 0.1.9 宏规则、PDF 对照、启动缓存及双语产品页修改；此修复不改变已测性能路径。

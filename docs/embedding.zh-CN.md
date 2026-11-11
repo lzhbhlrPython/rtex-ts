@@ -98,7 +98,7 @@ CLI 在收到换行前就限制每条请求的 UTF-8 字节数为 8 MiB。输入
 
 辅助工具基于可信文档请求执行：`auto` 在有 `.bcf` 时选 Biber，否则遇 `\bibdata` 时用 BibTeX；索引程序限 makeindex/texindy/xindy/truexindy/upmendex/mendex。工具及文档依赖需要另装，失败保留上次有效布局。
 
-## 启动缓存与规则推断（0.1.10）
+## 启动缓存与规则推断（0.1.11）
 
 默认沿用 TeX 安装的字体缓存（包括现有 `TEXMFCACHE`），不再为每个会话强制创建全新字体缓存。此缓存由 TeX/宿主管理，`close()` 不删除。受限或需隔离的宿主可传 `fontCacheDir`（CLI：`--font-cache DIR`），应位于项目源码之外，或本会话构建目录内；可跨会话复用，首次生成仍有开销。需要保留目录写入权限。
 
