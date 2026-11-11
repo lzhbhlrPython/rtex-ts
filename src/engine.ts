@@ -1,8 +1,8 @@
 // Persistent LuaLaTeX driver/context handling derived from realtime-tex engine.rs.
-// JSON requests use stdin; framed replies use a FIFO or a Windows named pipe.
+// Compile requests use raw UTF-8 frames; Windows uses a binary request pipe.
 import { writeFileSync, existsSync, copyFileSync, mkdirSync, rm } from 'node:fs';
 import path from 'node:path';
-import { ResponseChannel } from './transport.js';
+import { ResponseChannel, RequestChannel } from './transport.js';
 import type { ChildProcess } from 'node:child_process';
 import { decodeDisplayList } from './display-list.js';
 import type { DisplayList } from './types.js';
@@ -11,6 +11,7 @@ export interface EngineReply { op: string; req?: number; status?: string; reason
 export class LiveEngine {
   private child?: ChildProcess;
   private channel = new ResponseChannel();
+  private requests = process.platform === 'win32' ? new RequestChannel() : undefined;
   private log = '';
   private serial: Promise<unknown> = Promise.resolve();
   private closed = false;
@@ -29,8 +30,9 @@ export class LiveEngine {
 \loop\rtexstep\ifnum\rtexcontinue>0 \repeat
 \end{document}
 `;
-    writeFileSync(driver, text); await this.channel.open(this.work);
-    this.child = this.processes.spawn(this.executable, ['-interaction=batchmode', '--output-directory=' + texPath(this.work), texPath(driver)], this.cwd, { ...this.env, RTEX_RESP: this.channel.address });
+    writeFileSync(driver, text); await this.channel.open(this.work); await this.requests?.open();
+    if (this.closed) { this.channel.close(); this.requests?.close(); throw new Error('Live engine is closed'); }
+    this.child = this.processes.spawn(this.executable, ['-interaction=batchmode', '--output-directory=' + texPath(this.work), texPath(driver)], this.cwd, { ...this.env, RTEX_RESP: this.channel.address, RTEX_REQ: this.requests?.address || '' });
     const append = (chunk: Buffer) => { this.log = (this.log + chunk.toString('utf8')).slice(-4096); };
     this.child.stdout!.on('data', append); this.child.stderr!.on('data', append);
     this.child.once('error', error => { this.failure = error; this.channel.fail(error); });
@@ -53,9 +55,18 @@ export class LiveEngine {
   request(command: Record<string, unknown>): Promise<EngineReply> {
     const task = this.serial.then(async () => {
       if (this.closed || !this.child) throw new Error('Live engine is closed');
-      const encoded = JSON.stringify(command);
-      if (Buffer.byteLength(encoded) > 8 * 1024 * 1024) throw new Error('Engine request too large');
-      await new Promise<void>((resolve, reject) => this.child!.stdin!.write(encoded + '\n', error => error ? reject(error) : resolve()));
+      let bytes: Buffer;
+      if (command.op === 'compile') {
+        if (!Number.isSafeInteger(command.req) || Number(command.req) < 0 || !Number.isSafeInteger(command.ctx) || typeof command.source !== 'string') throw new Error('Invalid compile request');
+        const source = Buffer.from(command.source), pics = Buffer.from(command.pics ? JSON.stringify(command.pics) : '');
+        bytes = Buffer.concat([Buffer.from(`C ${command.req} ${command.ctx} ${source.length} ${pics.length}\n`), source, pics]);
+      } else bytes = Buffer.from(JSON.stringify(command) + '\n');
+      if (bytes.length > 8 * 1024 * 1024) throw new Error('Engine request too large');
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        const writing = this.requests ? this.requests.write(bytes) : new Promise<void>((resolve, reject) => this.child!.stdin!.write(bytes, error => error ? reject(error) : resolve()));
+        await Promise.race([writing, new Promise<never>((_, reject) => { timer = setTimeout(() => { const error = new Error('Live engine request write timed out'); this.requests?.close(); this.child?.stdin?.destroy(); this.channel.fail(error); reject(error); }, this.timeout); })]);
+      } finally { clearTimeout(timer); }
       const reply = await this.readReply(this.timeout);
       if (['error', 'fatal'].includes(reply.op)) throw new Error(`Live engine rejected request: ${reply.reason || JSON.stringify(reply.errors)}`);
       return reply;
@@ -64,12 +75,12 @@ export class LiveEngine {
   }
   close(): void {
     if (this.closed) return;
-    this.closed = true; this.channel.close();
+    this.closed = true; this.channel.close(); this.requests?.close();
     const cleanup = () => rm(this.work, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }, () => {});
     if (this.child) {
       if (this.child.exitCode !== null || this.child.signalCode !== null) cleanup();
       else this.child.once('close', cleanup);
-      this.child.stdin?.end(); killTree(this.child);
+      killTree(this.child); this.child.stdin?.end();
     } else cleanup();
   }
 }

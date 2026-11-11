@@ -10,6 +10,13 @@ export function sourcePath(root: string, file: string): string {
   return real;
 }
 export function texPath(file: string): string { if (/[\r\n%#{}~"]/u.test(file)) throw new Error('Path contains unsupported TeX characters'); return file.replaceAll('\\', '/'); }
+export type TeXEngine = 'lualatex' | 'xelatex' | 'pdflatex';
+export function findTeXEngine(engine: TeXEngine, requested?: string): string {
+  if (requested) return requested;
+  if (process.env.RTEX_TEXLIVE_BIN) return path.join(process.env.RTEX_TEXLIVE_BIN, engine + (process.platform === 'win32' ? '.exe' : ''));
+  for (const folder of ['/Library/TeX/texbin', '/usr/local/bin', '/usr/bin']) { const candidate = path.join(folder, engine); if (existsSync(candidate)) return candidate; }
+  return engine + (process.platform === 'win32' ? '.exe' : '');
+}
 export function findLuaLaTeX(requested?: string): string {
   if (requested) return requested;
   if (process.env.RTEX_TEXLIVE_BIN) return path.join(process.env.RTEX_TEXLIVE_BIN, process.platform === 'win32' ? 'lualatex.exe' : 'lualatex');
@@ -26,6 +33,13 @@ export function environment(root: string, mainFile: string, cache: string): Node
 }
 // Derived from realtime-tex texlive.rs INPUT_PATH_HOOK; preserve subfolder lookup.
 export const INPUT_PATH_HOOK = String.raw`\directlua{local d=os.getenv("RTEX_PROJECT_DIR") local m=os.getenv("RTEX_MAIN_DIR") local p="" if m then p="{"..m.."/}" if d then p=p.."{"..d.."/"..m.."/}" end end if d then p=p.."{"..d.."/}" end if p=="" then else token.set_macro("input@path",p) end}`;
+/** Non-Lua engines use the same snapshot/main-folder lookup through TeX itself. */
+export function inputPathHook(engine: TeXEngine, root: string, main: string): string {
+  if (engine === 'lualatex') return INPUT_PATH_HOOK;
+  const folder = path.posix.dirname(main);
+  const folders = folder === '.' ? [root] : [folder, path.join(root, folder), root];
+  return String.raw`\makeatletter\def\input@path{` + folders.map(value => '{' + texPath(value) + '/}').join('') + String.raw`}\makeatother`;
+}
 export function killTree(child: ChildProcess): void {
   if (!child.pid) return;
   if (process.platform === 'win32') {
@@ -39,6 +53,7 @@ export class Processes {
   readonly children = new Set<ChildProcess>();
   spawn(executable: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): ChildProcess {
     const child = spawn(executable, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, detached: process.platform !== 'win32' });
+    child.stdin?.on('error', () => {}); // Early executable/timeout failure may close stdin before its writer.
     this.children.add(child); child.once('close', () => this.children.delete(child));
     return child;
   }

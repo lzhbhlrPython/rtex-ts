@@ -73,11 +73,11 @@ Stdout contains JSON replies and events only; diagnostics use stderr. Commands a
 
 ## Current boundaries
 
-- Only **LuaLaTeX**. pdfLaTeX and XeLaTeX are not supported.
-- Live updates target ordinary paragraphs and inline mathematics. Commands use a conservative allow-list and a comparison probe against the last full layout. Unverified results fall back to background compilation.
-- Headings, block environments (including tables and TikZ), custom macros and structural changes currently use the background path. A larger/shrinking paragraph has provisional vertical placement until the next layout.
+- **LuaLaTeX** provides live glyphs. **XeLaTeX/pdfLaTeX** provide full PDF layouts and clean export only; their live glyph path is unavailable.
+- Live candidates include paragraphs, inline/display math, headings and captured environments. Balanced syntax, context guards and an old-source comparison probe remain mandatory. `eligibility: "allowlist"` (default) requires known/package-provided or configured macros. Opt-in `"probe"` permits unknown vocabulary to reach the same old-source probe. Neither mode proves arbitrary TeX macros pure.
+- Ambiguous mappings, failed probes, unsupported drawing and structural changes use the background path. A larger/shrinking unit has provisional vertical placement until the next layout. TikZ still uses PDF fallback; picture-cache scheduling is not yet ported.
 - PDF fallback is required for drawings or glyph/font formats your host cannot render. rtex-ts returns display lists; it does not include a viewer.
-- Bibliography/index tools, warm background engines, picture-cache scheduling and upstream's broader eligibility logic have not been ported. Missing bibliography/index output must not be treated as converged.
+- Background passes preload a standby LuaLaTeX preamble and automatically run BibTeX/Biber and index tools when their inputs change. Disable with `warmBackground: false`, `bibTool: "none"`, or `index: false`. This remains a partial adaptation of pinned upstream 0.0.7; [capability coverage](docs/upstream-parity.md) records the remaining gaps.
 - Interior paragraph edits reuse the span index; replies arrive on POSIX FIFOs or Windows named pipes without response polling. [Performance methodology](docs/performance.md) measures edit-to-event latency; upstream timings do not describe this package.
 - Linux/macOS/Windows use Node APIs and platform-aware process cleanup. A CI matrix is provided; see [compatibility](docs/compatibility.md) for what was actually exercised.
 - LuaLaTeX runs document code with your permissions. This library is **not a sandbox**; a host opening untrusted projects must supply OS-level isolation.

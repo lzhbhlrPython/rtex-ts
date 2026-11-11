@@ -1,5 +1,6 @@
 // Conservative span model inspired by realtime-tex's document.rs; positions are UTF-8 bytes.
 import type { ByteEdit, Span } from './types.js';
+import { texTokens, groupAt } from './tex-syntax.js';
 let nextId = 1;
 export function applyByteEdit(text: string, edit: ByteEdit): string {
   const bytes = Buffer.from(text);
@@ -11,18 +12,14 @@ export function applyByteEdit(text: string, edit: ByteEdit): string {
 }
 /** Replace comments and verbatim contents without moving UTF-16 offsets. */
 export function maskTeX(text: string): string {
-  const chars = text.split('');
-  let i = 0;
-  const blank = (a: number, b: number) => { for (let k = a; k < b; k++) if (chars[k] !== '\n' && chars[k] !== '\r') chars[k] = ' '; };
-  while (i < text.length) {
-    if (text[i] === '%') { const end = text.indexOf('\n', i); blank(i, end < 0 ? text.length : end); i = end < 0 ? text.length : end; }
-    else if (text[i] === '\\') {
-      const rest = text.slice(i), env = /^\\begin\{(verbatim\*?|lstlisting|minted)\}/.exec(rest);
-      if (env) { const start = i + env[0].length, end = text.indexOf(`\\end{${env[1]}}`, start); const stop = end < 0 ? text.length : end + env[1].length + 6; blank(i, stop); i = stop; }
-      else if (/^\\verb\*?[^a-zA-Z\s]/.test(rest)) { const prefix = /^\\verb\*?/.exec(rest)![0]; const delimiter = text[i + prefix.length]; const end = text.indexOf(delimiter, i + prefix.length + 1); const stop = end < 0 ? text.length : end + 1; blank(i, stop); i = stop; }
-      else i += 2;
-    } else i++;
+  const chars = text.split(''); let cursor = 0;
+  const blank = (from: number, to: number) => { for (let i = from; i < to; i++) if (chars[i] !== '\n' && chars[i] !== '\r') chars[i] = ' '; };
+  for (const token of texTokens(text)) {
+    if (token.start > cursor) blank(cursor, token.start); // comment gaps omitted by the scanner
+    if (token.kind === 'opaque') blank(token.start, token.end);
+    cursor = token.end;
   }
+  if (cursor < text.length) blank(cursor, text.length);
   return chars.join('');
 }
 export function splitPreamble(text: string): { preamble: string; bodyStart: number; bodyEnd: number } {
@@ -39,39 +36,63 @@ export function splitPreamble(text: string): { preamble: string; bodyStart: numb
   if (start < 0) throw new Error('Main file has no document environment');
   return { preamble: text.slice(0, start), bodyStart: start + '\\begin{document}'.length, bodyEnd: end > start ? end : text.length };
 }
-export function splitSpans(text: string, main = false): Span[] {
-  const masked = maskTeX(text), regions: Array<{ start: number; end: number; kind: Span['kind'] }> = [];
+export interface SegmentRules { blockEnvs?: string[]; runIn?: string[] }
+const BLOCKS = new Set('itemize enumerate description quote quotation verse center flushleft flushright abstract figure figure* table table* tabbing proof verbatim verbatim* lstlisting Verbatim alltt spacing thebibliography IEEEkeywords IEEEdescription tikzpicture circuitikz pgfpicture'.split(' '));
+const HEADINGS = new Set('chapter section subsection subsubsection part paragraph subparagraph tableofcontents'.split(' '));
+export function splitSpans(text: string, main = false, rules: SegmentRules = {}): Span[] {
   let bounds = { preamble: '', bodyStart: 0, bodyEnd: text.length };
   if (main) { try { bounds = splitPreamble(text); } catch { bounds = { preamble: text, bodyStart: text.length, bodyEnd: text.length }; } }
+  const regions: Array<{start: number; end: number; kind: Span['kind']}> = [];
   if (bounds.bodyStart) regions.push({ start: 0, end: bounds.bodyStart, kind: 'preamble' });
-  let start = bounds.bodyStart, depth = 0, env = 0;
-  const push = (end: number) => { if (end > start && text.slice(start, end).trim()) regions.push({ start, end, kind: 'paragraph' }); start = end; };
-  for (let i = start; i < bounds.bodyEnd; i++) {
-    const ch = masked[i];
-    if (ch === '\\') {
-      const command = /^\\(begin|end)\{([^}]+)\}/.exec(masked.slice(i));
-      if (command) { env += command[1] === 'begin' ? 1 : -1; i += command[0].length - 1; }
-      else i++; // escaped punctuation must not affect nesting
-    } else if (ch === '{') depth++;
-    else if (ch === '}') depth--;
-    else if (ch === '\n' && depth === 0 && env === 0) {
-      const gap = /^\n[\t \r]*\n/.exec(masked.slice(i));
-      if (gap) { push(i + gap[0].length); i += gap[0].length - 1; }
+  let start = bounds.bodyStart, kind: Span['kind'] = 'paragraph', depth = 0, math = '', headingEnd = -1;
+  const env: string[] = [], blocks = new Set([...BLOCKS, ...(rules.blockEnvs || [])]);
+  const push = (end: number) => { if (end > start && text.slice(start, end).trim()) regions.push({ start, end, kind }); start = end; kind = 'paragraph'; headingEnd = -1; };
+  for (const token of texTokens(text.slice(bounds.bodyStart, bounds.bodyEnd))) {
+    const i = bounds.bodyStart + token.start, end = bounds.bodyStart + token.end;
+    if (token.kind === 'open') depth++;
+    else if (token.kind === 'close') { depth--; if (depth < 0) kind = 'unsupported'; }
+    else if (token.kind === 'math') {
+      const closing = token.value === ')' ? '(' : token.value === ']' ? '[' : token.value;
+      if (math === closing) math = ''; else if (!math && ![')', ']'].includes(token.value)) math = token.value; else kind = 'unsupported';
+    } else if (token.kind === 'begin') {
+      if (!env.length && !depth && !math && blocks.has(token.value)) {
+        const before = text.slice(start, i);
+        const inlinePicture = ['tikzpicture', 'circuitikz', 'pgfpicture'].includes(token.value) && before.trim();
+        if (!inlinePicture) { push(i); kind = 'environment'; }
+      }
+      env.push(token.value);
+    } else if (token.kind === 'end') {
+      if (env.pop() !== token.value) kind = 'unsupported';
+      if (!env.length && !depth && !math && kind === 'environment' && blocks.has(token.value)) push(end);
+    } else if (token.kind === 'opaque') {
+      if (['verbatim', 'verbatim*', 'Verbatim', 'lstlisting', 'minted', 'alltt'].includes(token.value)) kind = 'unsupported';
+    } else if (token.kind === 'command' && HEADINGS.has(token.value) && !env.length && !depth && !math) {
+      push(i); kind = 'heading';
+      if (!['paragraph', 'subparagraph', ...(rules.runIn || [])].includes(token.value)) {
+        let offset = end;
+        if (text[offset] === '*') offset++;
+        const optional = groupAt(text, offset, '[', ']'); if (optional) offset = optional.end;
+        const title = groupAt(text, offset); headingEnd = title?.end ?? end;
+      }
+    } else if (token.kind === 'text' && token.value === '\n' && !depth && !env.length && !math) {
+      if (headingEnd >= 0 && i >= headingEnd) push(end);
+      else { const gap = /^\n[\t \r]*\n/.exec(text.slice(i)); if (gap) push(i + gap[0].length); }
     }
   }
+  if (depth || env.length || math) kind = 'unsupported';
   push(bounds.bodyEnd);
   if (bounds.bodyEnd < text.length) regions.push({ start: bounds.bodyEnd, end: text.length, kind: 'trailer' });
   let cursor = 0, byteOffset = 0, lineOffset = 1;
   const newlines = (value: string) => { let count = 0; for (let i = 0; i < value.length; i++) if (value.charCodeAt(i) === 10) count++; return count; };
   return regions.map(region => {
     const gap = text.slice(cursor, region.start); byteOffset += Buffer.byteLength(gap); lineOffset += newlines(gap);
-    const raw = text.slice(region.start, region.end), clean = maskTeX(raw);
+    const raw = text.slice(region.start, region.end);
     const content = raw.search(/\S/), trimmed = raw.trimEnd();
     const start = byteOffset, end = start + Buffer.byteLength(raw);
     const firstLine = lineOffset + newlines(raw.slice(0, Math.max(0, content))), lastLine = lineOffset + newlines(trimmed);
     cursor = region.end; byteOffset = end; lineOffset += newlines(raw);
-    const unsupported = region.kind === 'paragraph' && (/\\(?:begin|end|section|subsection|chapter|paragraph|newcommand|renewcommand|def|gdef|setlength|setcounter|input|include|directlua|verb)\b/.test(clean) || depth !== 0 || env !== 0 || /\\begin\{(?:verbatim|lstlisting|minted)/.test(raw));
-    return { id: nextId++, start, end, firstLine, lastLine, text: trimmed, kind: unsupported ? 'unsupported' : region.kind };
+    return { id: nextId++, start, end, firstLine, lastLine, text: trimmed, kind: region.kind };
+
   });
 }
 export function minimalEdit(before: string, after: string): ByteEdit | null {
@@ -86,7 +107,7 @@ export function minimalEdit(before: string, after: string): ByteEdit | null {
 /** Re-segment an interior paragraph edit, retaining the rest of the span index.
  * Edits to whitespace boundaries or changes in paragraph structure use the full scanner.
  */
-export function editSpans(before: string, after: string, spans: Span[], edit: ByteEdit, main: boolean): Span[] {
+export function editSpans(before: string, after: string, spans: Span[], edit: ByteEdit, main: boolean, rules: SegmentRules = {}): Span[] {
   const span = spans.find(s => s.kind === 'paragraph' && edit.start >= s.start && edit.end <= s.end);
   if (span) {
     const bytes = Buffer.from(before), raw = bytes.subarray(span.start, span.end).toString('utf8');
@@ -94,7 +115,7 @@ export function editSpans(before: string, after: string, spans: Span[], edit: By
     const first = span.start + Buffer.byteLength(raw.slice(0, leading)), last = span.start + Buffer.byteLength(raw.trimEnd());
     if (edit.start >= first && edit.end <= last) {
       const next = applyByteEdit(raw, { ...edit, start: edit.start - span.start, end: edit.end - span.start });
-      const local = splitSpans(next);
+      const local = splitSpans(next, false, rules);
       if (local.length === 1 && local[0].kind === 'paragraph' && local[0].start === 0 && local[0].end === Buffer.byteLength(next)) {
         const lines = (value: string) => { let n = 0; for (let i = 0; i < value.length; i++) if (value.charCodeAt(i) === 10) n++; return n; };
         const delta = Buffer.byteLength(edit.text) - (edit.end - edit.start), lineDelta = lines(next) - lines(raw);
@@ -104,5 +125,5 @@ export function editSpans(before: string, after: string, spans: Span[], edit: By
       }
     }
   }
-  return splitSpans(after, main);
+  return splitSpans(after, main, rules);
 }

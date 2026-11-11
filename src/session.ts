@@ -1,13 +1,17 @@
 /** TypeScript host/session port of realtime-tex's two-path architecture. See UPSTREAM.md. */
 import { EventEmitter } from 'node:events';
 import { createHash, randomUUID } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync, rmSync } from 'node:fs';
+import { promises as fsp, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { applyByteEdit, editSpans, maskTeX, minimalEdit, splitPreamble, splitSpans } from './document.js';
+import { BackgroundEngine } from './background-engine.js';
+import { effectivePreamble } from './preamble.js';
+import { Policy, everyparAllowed } from './eligibility.js';
+import { AuxiliaryTools, readAuxLabels, INDEX_HOOK } from './auxiliary.js';
 import { LiveEngine } from './engine.js';
 import { isExact } from './display-list.js';
-import { environment, findLuaLaTeX, INPUT_PATH_HOOK, inside, Processes, sourcePath, texPath } from './process.js';
+import { environment, findLuaLaTeX, INPUT_PATH_HOOK, inside, Processes, sourcePath, texPath, findTeXEngine, inputPathHook } from './process.js';
 import type { ByteEdit, Capture, CapturedRow, CapturedUnit, DisplayList, EditResult, Fragment, Placement, SessionConfig, SessionEvent, Span, Versions } from './types.js';
 
 interface FileState { text: string; spans: Span[] }
@@ -15,13 +19,6 @@ interface Context { file: string; span: Span; unit: CapturedUnit; rows: Array<{ 
 const IGNORED = new Set(['.git', '.texpro', '.rtex-ts', 'node_modules', 'dist', 'build']);
 const hash = (text: string | Buffer) => createHash('sha256').update(text).digest('hex');
 const asObject = <T>(value: T | unknown[]): T => (Array.isArray(value) ? {} : value) as T;
-const SAFE = new Set(('emph textbf textit texttt textrm textsf textnormal textsc underline mbox hbox fbox ensuremath frac dfrac tfrac sqrt left right big Big bigg Bigg sum prod int iint iiint oint lim sin cos tan log ln exp min max sup inf alpha beta gamma delta epsilon varepsilon zeta eta theta vartheta iota kappa lambda mu nu xi pi varpi rho varrho sigma varsigma tau upsilon phi varphi chi psi omega Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega infty partial nabla cdot times div pm mp leq geq neq approx equiv sim simeq propto in notin subset supset subseteq supseteq cup cap land lor neg forall exists to mapsto rightarrow leftarrow leftrightarrow Rightarrow Leftarrow Leftrightarrow hat widehat bar vec dot ddot tilde widetilde overline underbrace overbrace mathbf mathit mathrm mathsf mathtt mathcal mathbb mathfrak operatorname limits nolimits displaystyle textstyle scriptstyle scriptscriptstyle text ref eqref cite pageref autoref label footnote quad qquad thinspace enspace hspace vspace smallskip medskip bigskip TeX LaTeX ldots cdots vdots ddots colon lbrace rbrace langle rangle vert Vert backslash ell hbar emptyset angle degree det gcd bmod pmod binom dbinom tbinom').split(' '));
-function eligible(text: string): boolean {
-  const masked = maskTeX(text);
-  if (/\\(?:begin|end)\b/.test(masked)) return false;
-  for (const command of masked.matchAll(/\\([A-Za-z@]+|.)/gs)) if (command[1].length > 1 && !SAFE.has(command[1])) return false;
-  return true;
-}
 function fragments(rows: CapturedRow[]): Fragment[] {
   const result: Fragment[] = [];
   for (const row of rows) {
@@ -58,11 +55,17 @@ export class Session extends EventEmitter {
   private revision = 0; private layoutVersion = 0; private contextRevision = 0; private generation = 0; private editId = 0;
   private closed = false; private backgroundRunning = false; private backgroundPending = false;
   private timer?: NodeJS.Timeout; private engine?: LiveEngine; private preambleHash = '';
+  private installedContext?: { engine: LiveEngine; context: Context };
   private contexts = new Map<number, Context>(); private pageHashes = new Map<number, string>();
   private fastQueue = new Map<number, { file: string; span: Span; revision: number; editId: number }>(); private fastRunning = false;
   private backgroundDirs: string[] = []; private liveSnapshot = '';
   private convergence = 'Stale'; private lastPdf: string | null = null; private exports = 0;
   private exporting = false;
+  private policy: Policy;
+  private options: SessionConfig;
+  private engineName: 'lualatex' | 'xelatex' | 'pdflatex';
+  private paused = false;
+  private standby?: { engine: BackgroundEngine; dir: string; preamble: string };
   private constructor(config: SessionConfig) {
     super();
     this.projectRoot = realpathSync.native(config.projectRoot);
@@ -70,14 +73,24 @@ export class Session extends EventEmitter {
     this.buildDir = path.resolve(config.buildDir || path.join(this.projectRoot, '.rtex-ts', randomUUID()));
     if (inside(this.buildDir, this.projectRoot)) throw new Error('Build directory cannot contain project root');
     mkdirSync(this.buildDir, { recursive: true });
-    if (inside(this.projectRoot, this.buildDir) && !inside(this.projectRoot, realpathSync.native(this.buildDir))) throw new Error('Build directory escapes project');
-    this.executable = findLuaLaTeX(config.lualatex);
+    const requestedBuild = this.buildDir; this.buildDir = realpathSync.native(this.buildDir);
+    if (inside(this.buildDir, this.projectRoot)) throw new Error('Build directory cannot contain project root');
+    if (inside(this.projectRoot, requestedBuild) && !inside(this.projectRoot, this.buildDir)) throw new Error('Build directory escapes project');
+    this.engineName = config.engine || 'lualatex';
+    if (!['lualatex', 'xelatex', 'pdflatex'].includes(this.engineName)) throw new Error('Unsupported TeX engine');
+    if (config.mathOwnerAttribute !== undefined && (!Number.isInteger(config.mathOwnerAttribute) || config.mathOwnerAttribute < 0 || config.mathOwnerAttribute > 65535)) throw new Error('Invalid math owner attribute');
+    if (config.eligibility !== undefined && !['probe', 'allowlist'].includes(config.eligibility)) throw new Error('Invalid eligibility mode');
+    if (config.bibTool !== undefined && !['auto', 'bibtex', 'biber', 'none'].includes(config.bibTool)) throw new Error('Invalid bibliography tool');
+    for (const values of [config.trustedMacros, config.unitEnvs]) if (values !== undefined && (!Array.isArray(values) || values.length > 1000 || values.some(value => typeof value !== 'string' || !/^[A-Za-z@][A-Za-z@0-9*]*$/.test(value)))) throw new Error('Invalid policy names');
+    this.options = { ...config, trustedMacros: config.trustedMacros?.slice(), unitEnvs: config.unitEnvs?.slice(), auxExecutables: { ...config.auxExecutables } };
+    this.executable = findTeXEngine(this.engineName, config.texExecutable || (this.engineName === 'lualatex' ? config.lualatex : undefined));
+    this.policy = new Policy('', config);
     this.config = { debounceMs: config.debounceMs ?? 300, compileTimeoutMs: config.compileTimeoutMs ?? 5000, passTimeoutMs: config.passTimeoutMs ?? 120000, maxPasses: config.maxPasses ?? 5, maxSourceBytes: config.maxSourceBytes ?? 4 * 1024 * 1024, fastBudgetMs: config.fastBudgetMs ?? 50 };
     for (const value of Object.values(this.config)) if (!Number.isFinite(value) || value < 1) throw new Error('Invalid session limit');
     this.env = environment(this.projectRoot, this.mainFile, path.join(this.buildDir, 'font-cache'));
     this.readProject(this.projectRoot, 0);
     if (!this.files.has(this.mainFile)) this.addFile(this.mainFile, readFileSync(main, 'utf8'));
-    splitPreamble(this.files.get(this.mainFile)!.text);
+    this.policy = new Policy(effectivePreamble(this.files, this.mainFile), this.options);
   }
   static async open(config: SessionConfig): Promise<Session> {
     const session = new Session(config);
@@ -90,6 +103,28 @@ export class Session extends EventEmitter {
   versions(): Versions { return { source_revision: this.revision, context_revision: this.contextRevision, engine_generation: this.generation, layout_version: this.layoutVersion }; }
   processIds(): number[] { return [...this.processes.children].map(child => child.pid).filter((pid): pid is number => pid !== undefined); }
   status(): { versions: Versions; convergence: string } { return { versions: this.versions(), convergence: this.convergence }; }
+  stats(): { versions: Versions; convergence: string; processes: number[]; files: number; sourceBytes: number; eligibleUnits: number; pendingLive: number; backgroundRunning: boolean; backgroundPaused: boolean; warmBackground: boolean } {
+    return { ...this.status(), processes: this.processIds(), files: this.files.size, sourceBytes: [...this.files.values()].reduce((sum, file) => sum + Buffer.byteLength(file.text), 0), eligibleUnits: this.contexts.size, pendingLive: this.fastQueue.size, backgroundRunning: this.backgroundRunning, backgroundPaused: this.paused, warmBackground: !!this.standby?.engine.alive() };
+  }
+  /** Probe current captured source units without editing buffers or publishing overlays. */
+  async verify(): Promise<{ sourceRevision: number; stale: boolean; units: Array<{ id: number; matched: boolean; reason?: string }> }> {
+    if (this.closed || !this.engine) throw new Error('Live engine is not ready');
+    const engine = this.engine, sourceRevision = this.revision, units: Array<{ id: number; matched: boolean; reason?: string }> = [];
+    try {
+      for (const [id, context] of this.contexts) {
+        if (this.closed || engine !== this.engine || sourceRevision !== this.revision) break;
+        await engine.request({ op: 'context', id, ctx: context.unit.context });
+        const probe = await engine.request({ op: 'compile', req: 0, ctx: id, source: context.span.text });
+        if ((probe.leaks || []).length) throw new Error('Verification probe leaked state: ' + probe.leaks!.join(', '));
+        const matched = probe.status === 'ok' && !!probe.dl && isExact(probe.dl) && fingerprint(probe.dl.lines.map((_, index) => ({ dl: probe.dl!, index }))) === fingerprint(context.rows);
+        units.push({ id, matched, ...(matched ? {} : { reason: 'probe differed from full layout' }) });
+      }
+    } catch (error) {
+      if (engine === this.engine) { engine.close(); this.engine = undefined; this.preambleHash = ''; this.generation++; this.schedule(); }
+      throw error;
+    }
+    return { sourceRevision, stale: this.closed || engine !== this.engine || sourceRevision !== this.revision, units };
+  }
   private readProject(dir: string, depth: number): void {
     if (depth > 12) throw new Error('Project nesting limit exceeded');
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -106,7 +141,7 @@ export class Session extends EventEmitter {
   private addFile(file: string, text: string): void {
     const bytes = [...this.files.values()].reduce((sum, value) => sum + Buffer.byteLength(value.text), 0);
     if (bytes + Buffer.byteLength(text) > 64 * 1024 * 1024) throw new Error('Project buffer limit exceeded');
-    this.files.set(file, { text, spans: splitSpans(text, file === this.mainFile) }); }
+    this.files.set(file, { text, spans: splitSpans(text, file === this.mainFile, { blockEnvs: [...this.policy.unitEnvs] }) }); }
   documentText(file: string): string { return this.files.get(this.key(file))!.text; }
   spans(file: string): Span[] { return this.files.get(this.key(file))!.spans.map(span => ({ ...span })); }
   private key(file: string): string {
@@ -126,7 +161,7 @@ export class Session extends EventEmitter {
     if (total - Buffer.byteLength(old.text) + Buffer.byteLength(text) > 64 * 1024 * 1024) throw new Error('Project buffer limit exceeded');
     const edit = minimalEdit(old.text, text);
     if (!edit) return { edit_id: this.editId, source_revision: this.revision, routed: 'background', reasons: ['unchanged'] };
-    const spans = editSpans(old.text, text, old.spans, edit, key === this.mainFile), delta = Buffer.byteLength(text) - Buffer.byteLength(old.text);
+    const spans = editSpans(old.text, text, old.spans, edit, key === this.mainFile, { blockEnvs: [...this.policy.unitEnvs] }), delta = Buffer.byteLength(text) - Buffer.byteLength(old.text);
     const affected = old.spans.find(span => edit.start >= span.start && edit.end <= span.end);
     const oldByStart = new Map(old.spans.map(span => [span.start, span]));
     for (const next of spans) {
@@ -144,15 +179,27 @@ export class Session extends EventEmitter {
       this.event({ event: 'ParagraphUpdate', versions: this.versions(), par_id: span.id, edit_id: this.editId, status: 'removed', reasons: [], fragments: fragments(context.unit.placements), pagination_stale: true, context_stale: true, dl: context.rows[0]?.dl || emptyDrawing(), diagnostics: [], timing: { total_us: 0, tex_us: 0, traversal_us: 0 } });
       this.contexts.delete(span.id);
     }
-    const routed = affected?.kind === 'preamble' ? 'preamble' : replacement?.kind === 'paragraph' && eligible(replacement.text) && this.contexts.has(replacement.id) && this.engine ? 'fast' : 'background';
+    const ordinaryEdit = affected?.kind === 'paragraph' && replacement?.kind === 'paragraph' && !this.policy.classify(affected.text).reasons.length && !this.policy.classify(replacement.text).reasons.length;
+    let nextPreamble: string | undefined, preambleChanged = false;
+    if (!ordinaryEdit) {
+      try { nextPreamble = effectivePreamble(this.files, this.mainFile); preambleChanged = hash(effectivePreamble(new Map([...this.files].map(([file, state]) => [file, file === key ? old : state])), this.mainFile)) !== hash(nextPreamble); }
+      catch { preambleChanged = true; }
+    }
+    const routed = (preambleChanged || affected?.kind === 'preamble') ? 'preamble' : replacement && ['paragraph', 'environment', 'heading', 'unsupported'].includes(replacement.kind) && !this.policy.classify(replacement.text).reasons.length && this.contexts.has(replacement.id) && this.engine ? 'fast' : 'background';
     const reasons = routed === 'fast' ? [] : [routed === 'preamble' ? 'preamble changed' : 'unit requires full layout'];
-    if (routed === 'preamble') { this.engine?.close(); this.engine = undefined; this.preambleHash = ''; this.generation++; }
+    if (routed === 'preamble') { this.policy = new Policy(nextPreamble || '', this.options); this.engine?.close(); this.engine = undefined; this.preambleHash = ''; this.generation++; }
     if (routed === 'fast') {
       this.fastQueue.set(replacement!.id, { file: key, span: replacement!, revision: this.revision, editId: this.editId }); void this.fast();
     } else this.event({ event: 'BackgroundScheduled', par_id: affected?.id || null, edit_id: this.editId, reasons });
     this.schedule(); return { edit_id: this.editId, source_revision: this.revision, routed, reasons };
   }
   private schedule(): void { clearTimeout(this.timer); this.timer = setTimeout(() => { void this.background(); }, this.config.debounceMs); }
+  pauseBackground(paused: boolean): void {
+    if (this.closed) throw new Error('Session is closed');
+    this.paused = paused;
+    if (paused) clearTimeout(this.timer);
+    else if (this.backgroundPending) { this.backgroundPending = false; this.requestLayout(); }
+  }
   requestLayout(): void { clearTimeout(this.timer); void this.background(); }
   private async fast(): Promise<void> {
     if (this.fastRunning || this.closed) return;
@@ -161,12 +208,16 @@ export class Session extends EventEmitter {
       while (this.fastQueue.size && this.engine && !this.closed) {
         const [id, task] = this.fastQueue.entries().next().value!; this.fastQueue.delete(id);
         const context = this.contexts.get(id), engine = this.engine, generation = this.generation;
-        if (!context || !task.span || !eligible(task.span.text)) continue;
+        if (!context || !task.span || this.policy.classify(task.span.text).reasons.length > 0) continue;
+        if (this.options.fastOnStaleContext === false && context.revision < task.revision - 1) continue;
         const started = performance.now();
         try {
-          await engine.request({ op: 'context', id, ctx: context.unit.context });
+          if (this.installedContext?.engine !== engine || this.installedContext.context !== context) {
+            await engine.request({ op: 'context', id, ctx: context.unit.context }); this.installedContext = { engine, context };
+          }
           if (!context.verified) {
             const probe = await engine.request({ op: 'compile', req: task.editId, ctx: id, source: context.span.text });
+            if ((probe.leaks || []).length) throw new Error('Live probe leaked state: ' + probe.leaks!.join(', '));
             if (probe.status !== 'ok' || !probe.dl || (probe.leaks || []).length || !isExact(probe.dl) || fingerprint(probe.dl.lines.map((_, index) => ({ dl: probe.dl!, index }))) !== fingerprint(context.rows)) {
               this.event({ event: 'BackgroundScheduled', par_id: id, edit_id: task.editId, reasons: ['probe differed from full layout'] }); continue;
             }
@@ -174,6 +225,7 @@ export class Session extends EventEmitter {
           }
           const result = await engine.request({ op: 'compile', req: task.editId, ctx: id, source: task.span.text });
           if (this.closed || engine !== this.engine || generation !== this.generation || this.contexts.get(id) !== context || this.files.get(task.file)?.spans.find(span => span.id === id) !== task.span) continue;
+          if ((result.leaks || []).length) throw new Error('Live compile leaked state: ' + result.leaks!.join(', '));
           if (result.status !== 'ok' || !result.dl || (result.leaks || []).length || !isExact(result.dl) || result.dl.inserts > 0 || performance.now() - started > this.config.fastBudgetMs) {
             this.event({ event: 'BackgroundScheduled', par_id: id, edit_id: task.editId, reasons: ['live result needs full layout'] }); continue;
           }
@@ -187,55 +239,97 @@ export class Session extends EventEmitter {
       }
     } finally { this.fastRunning = false; }
   }
-  private snapshot(destination: string, files: Map<string, FileState>): void {
-    mkdirSync(destination, { recursive: true }); let count = 0, bytes = 0;
-    const visit = (from: string, to: string, depth: number) => {
+  private async snapshot(destination: string, files: Map<string, FileState>): Promise<void> {
+    await fsp.mkdir(destination, { recursive: true }); let count = 0, bytes = 0;
+    const tasks: Promise<void>[] = [];
+    const flush = async () => { const results = await Promise.allSettled(tasks.splice(0)); const failed = results.find(result => result.status === 'rejected'); if (failed?.status === 'rejected') throw failed.reason; };
+    const visit = async (from: string, to: string, depth: number): Promise<void> => {
+      if (this.closed) throw new Error('Session is closed');
       if (depth > 12) throw new Error('Snapshot nesting limit exceeded');
-      for (const entry of readdirSync(from, { withFileTypes: true })) {
+      for (const entry of await fsp.readdir(from, { withFileTypes: true })) {
         const source = path.join(from, entry.name);
         if (IGNORED.has(entry.name) || entry.name.startsWith('.') || inside(this.buildDir, source)) continue;
         if (++count > 10000) throw new Error('Snapshot file limit exceeded');
         const target = path.join(to, entry.name);
-        if (entry.isSymbolicLink()) { if (!inside(this.projectRoot, realpathSync.native(source))) throw new Error('Project symlink escapes root'); if (statSync(source).isDirectory()) continue; }
-        if (entry.isDirectory()) { mkdirSync(target, { recursive: true }); visit(source, target, depth + 1); }
+        if (entry.isSymbolicLink()) { if (!inside(this.projectRoot, await fsp.realpath(source))) throw new Error('Project symlink escapes root'); if ((await fsp.stat(source)).isDirectory()) continue; }
+        if (entry.isDirectory()) { await fsp.mkdir(target, { recursive: true }); await visit(source, target, depth + 1); }
         else if (entry.isFile() || entry.isSymbolicLink()) {
-          const size = statSync(source).size; bytes += size;
+          const size = (await fsp.stat(source)).size; bytes += size;
           if (size > 64 * 1024 * 1024 || bytes > 256 * 1024 * 1024) throw new Error('Snapshot size limit exceeded');
-          copyFileSync(source, target);
+          const key = path.relative(this.projectRoot, source).replaceAll('\\', '/');
+          if (!files.has(key)) tasks.push(fsp.copyFile(source, target));
+          if (tasks.length >= 8) await flush();
         }
       }
     };
-    visit(this.projectRoot, destination, 0);
-    for (const [file, data] of files) { const target = path.join(destination, file); mkdirSync(path.dirname(target), { recursive: true }); writeFileSync(target, data.text); }
+    try {
+      await visit(this.projectRoot, destination, 0); await flush();
+      for (const [file, data] of files) { const target = path.join(destination, file); await fsp.mkdir(path.dirname(target), { recursive: true }); await fsp.writeFile(target, data.text); }
+    } catch (error) { await Promise.allSettled(tasks); throw error; }
+  }
+  private async prepareStandby(): Promise<void> {
+    if (this.closed || this.engineName !== 'lualatex' || this.options.warmBackground === false) return;
+    let preamble: string; try { preamble = effectivePreamble(this.files, this.mainFile, false); } catch { return; }
+    if (this.standby?.preamble === preamble && this.standby.engine.alive()) return;
+    this.standby?.engine.close(); this.standby = undefined;
+    const dir = path.join(this.buildDir, 'background-' + randomUUID()), snapshot = path.join(dir, 'snapshot'), output = path.join(dir, 'output');
+    try {
+      this.backgroundDirs.push(dir); await this.snapshot(snapshot, new Map(this.files)); if (this.closed) return; mkdirSync(output, { recursive: true });
+      const preambleFile = path.join(dir, 'rtex-preamble.tex'); writeFileSync(preambleFile, preamble);
+      const job = path.basename(this.mainFile, path.extname(this.mainFile));
+      const driver = path.join(dir, 'rtex-warm.tex');
+      writeFileSync(driver, INPUT_PATH_HOOK + '\\RequirePackage{rtex-capture}\\input{' + texPath(preambleFile) + '}\\directlua{dofile(kpse.find_file("rtex-bg.lua","lua"))}\\input{' + texPath(this.mainFile) + '}');
+      const args = ['-interaction=nonstopmode', '-halt-on-error', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), texPath(driver)];
+      const env = { ...environment(snapshot, this.mainFile, path.join(this.buildDir, 'font-cache')), RTEX_CAPTURE_DIR: texPath(output), RTEX_UNIT_ENVS: [...this.policy.unitEnvs].join(','), RTEX_MATH_OWNER_ATTRIBUTE: this.options.mathOwnerAttribute === undefined ? undefined : String(this.options.mathOwnerAttribute) };
+      this.standby = { engine: new BackgroundEngine(this.processes, this.executable, args, snapshot, env), dir, preamble };
+    } catch (error) { this.event({ event: 'Diagnostics', source: 'standby', items: [{ severity: 'warning', message: String(error) }] }); }
   }
   private async background(): Promise<void> {
     if (this.closed) return;
+    if (this.paused) { this.backgroundPending = true; return; }
     if (this.backgroundRunning) { this.backgroundPending = true; return; }
     this.backgroundRunning = true;
-    const revision = this.revision, files = new Map(this.files), dir = path.join(this.buildDir, 'background-' + randomUUID());
-    const snapshot = path.join(dir, 'snapshot'), output = path.join(dir, 'output'), job = path.basename(this.mainFile, path.extname(this.mainFile));
+    const revision = this.revision, files = new Map(this.files);
+    let ready: typeof this.standby;
+    let dir = path.join(this.buildDir, 'background-' + randomUUID());
+    let snapshot = path.join(dir, 'snapshot'), output = path.join(dir, 'output');
+    const job = path.basename(this.mainFile, path.extname(this.mainFile));
     const started = performance.now();
     try {
-      this.backgroundDirs.push(dir);
-      this.snapshot(snapshot, files); mkdirSync(output, { recursive: true });
+      ready = this.standby?.preamble === effectivePreamble(files, this.mainFile, false) && this.standby.engine.alive() ? this.standby : undefined;
+      if (this.standby && !ready) this.standby.engine.close();
+      this.standby = undefined;
+      if (ready) { dir = ready.dir; snapshot = path.join(dir, 'snapshot'); output = path.join(dir, 'output'); }
+      if (!this.backgroundDirs.includes(dir)) this.backgroundDirs.push(dir);
+      await this.snapshot(snapshot, files); if (this.closed) return; mkdirSync(output, { recursive: true });
       // \include writes aux files below the output directory as well.
       for (const file of files.keys()) mkdirSync(path.join(output, path.dirname(file)), { recursive: true });
       let signature = '', passes = 0, code = 0, log = '', converged = false;
       const driver = path.join(dir, 'rtex-background.tex');
-      writeFileSync(driver, INPUT_PATH_HOOK + '\\RequirePackage{rtex-capture}\\input{' + texPath(this.mainFile) + '}');
+      writeFileSync(driver, inputPathHook(this.engineName, snapshot, this.mainFile) + (this.engineName === 'lualatex' ? '\\RequirePackage{rtex-capture}' : INDEX_HOOK) + '\\input{' + texPath(this.mainFile) + '}');
       const args = ['-interaction=nonstopmode', '-halt-on-error', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), texPath(driver)];
-      const env = { ...environment(snapshot, this.mainFile, path.join(this.buildDir, 'font-cache')), RTEX_CAPTURE_DIR: texPath(output) };
+      const env = { ...environment(snapshot, this.mainFile, path.join(this.buildDir, 'font-cache')), RTEX_CAPTURE_DIR: texPath(output), RTEX_UNIT_ENVS: [...this.policy.unitEnvs].join(','), RTEX_MATH_OWNER_ATTRIBUTE: this.options.mathOwnerAttribute === undefined ? undefined : String(this.options.mathOwnerAttribute) };
+      const tools = new AuxiliaryTools(this.processes, this.executable, this.config.passTimeoutMs, this.options.bibTool, this.options.index, this.options.auxExecutables);
       for (; passes < this.config.maxPasses; passes++) {
-        const result = await this.processes.run(this.executable, args, snapshot, env, this.config.passTimeoutMs); code = result.code; log = result.log;
+        let result;
+        if (ready && passes === 0) {
+          const text = files.get(this.mainFile)!.text, bounds = splitPreamble(text);
+          writeFileSync(path.join(snapshot, this.mainFile), '\n'.repeat(bounds.preamble.split('\n').length - 1) + text.slice(bounds.preamble.length));
+          result = await ready.engine.run(this.config.passTimeoutMs);
+          writeFileSync(path.join(snapshot, this.mainFile), text);
+        } else result = await this.processes.run(this.executable, args, snapshot, env, this.config.passTimeoutMs);
+        code = result.code; log = result.log;
         if (this.closed) return;
+        if (code === 0) await tools.run(snapshot, this.mainFile, output, env);
         const next = auxiliarySignature(output);
         if (next === signature && code === 0 && !/Rerun to get|Please \(re\)run|There were undefined references|No file .+\.(?:bbl|ind)\./.test(log)) { converged = true; passes++; break; }
         signature = next;
-        // Bibliography/index processes are deliberately not spawned implicitly in v0.1.
+        // Auxiliary tools run before the next immutable pass.
         if (code !== 0) { passes++; break; }
       }
-      if (code !== 0 || !existsSync(path.join(output, job + '.rtex.json'))) throw new Error('Background capture failed: ' + log.slice(-6000));
-      const capture = JSON.parse(readFileSync(path.join(output, job + '.rtex.json'), 'utf8')) as Capture;
+      if (code !== 0 || (this.engineName === 'lualatex' && !existsSync(path.join(output, job + '.rtex.json')))) throw new Error('Background capture failed: ' + log.slice(-6000));
+      if (this.engineName === 'lualatex' && (await fsp.stat(path.join(output, job + '.rtex.json'))).size > 32 * 1024 * 1024) throw new Error('Capture metadata too large');
+      const capture = this.engineName === 'lualatex' ? JSON.parse(readFileSync(path.join(output, job + '.rtex.json'), 'utf8')) as Capture : { pages: Number([...log.matchAll(/Output written on[\s\S]*?\((\d+) pages?[,.]/g)].at(-1)?.[1] || 1), units: [], paragraphs: [], counters: [] };
       const errors = parseErrors(log);
       this.event({ event: 'Diagnostics', source: 'background', items: errors });
       if (code !== 0) throw new Error('Background compilation failed; retaining the last valid layout');
@@ -244,27 +338,32 @@ export class Session extends EventEmitter {
       const nextHashes = new Map<number, string>();
       if (!Number.isSafeInteger(capture.pages) || capture.pages < 0 || capture.pages > 1000) throw new Error('Page limit exceeded');
       for (let page = 1; page <= capture.pages; page++) {
-        const data = readFileSync(path.join(output, `${job}.rtex-page${page}.json`), 'utf8');
+        if (this.engineName !== 'lualatex') break;
+        const pageFile = path.join(output, `${job}.rtex-page${page}.json`);
+        if ((await fsp.stat(pageFile)).size > 32 * 1024 * 1024) throw new Error('Page display list too large');
+        const data = await fsp.readFile(pageFile, 'utf8');
         if (Buffer.byteLength(data) > 32 * 1024 * 1024) throw new Error('Page display list too large');
         const dl: DisplayList = JSON.parse(data); allPages.set(page, dl); const digest = hash(data);
         if (this.pageHashes.get(page) !== digest) pages.push({ page, exact: isExact(dl), hash: digest, dl });
         nextHashes.set(page, digest);
       }
-      const { placements, contexts } = this.buildContexts(capture, files, allPages, revision);
+      const { placements, contexts } = await this.buildContexts(capture, files, allPages, revision);
       const pdf = path.join(this.buildDir, `layout-${this.layoutVersion + 1}.pdf`);
-      copyFileSync(path.join(output, job + '.pdf'), pdf);
+      await fsp.copyFile(path.join(output, job + '.pdf'), pdf);
+      if (this.closed) return;
       // Publish a complete layout transaction only after every artifact is available.
       this.pageHashes = nextHashes; this.contexts = contexts;
       this.layoutVersion++; this.lastPdf = pdf; this.contextRevision++;
       this.convergence = revision !== this.revision ? 'Stale' : code !== 0 ? 'PassLimitReached' : converged ? 'Converged' : 'PassLimitReached';
-      this.event({ event: 'LayoutUpdate', versions: { ...this.versions(), source_revision: revision }, compile: { state: code === 0 ? 'Ok' : 'CompiledWithErrors', count: errors.length }, convergence: { state: this.convergence as 'Converged' | 'Stale' | 'PassLimitReached' }, pages_total: capture.pages, pages_changed: pages, placements, eligible_paragraphs: [...this.contexts.keys()], pdf_fallback: [...allPages.values()].some(dl => !isExact(dl)) ? pdf : null, pdf_path: pdf, wall_ms: performance.now() - started, passes });
-      if (this.closed) return;
-      const preamble = splitPreamble(files.get(this.mainFile)!.text).preamble;
-      if (hash(splitPreamble(this.files.get(this.mainFile)!.text).preamble) !== hash(preamble)) return;
+      this.event({ event: 'LayoutUpdate', versions: { ...this.versions(), source_revision: revision }, compile: { state: code === 0 ? 'Ok' : 'CompiledWithErrors', count: errors.length }, convergence: { state: this.convergence as 'Converged' | 'Stale' | 'PassLimitReached' }, pages_total: capture.pages, pages_changed: pages, placements, eligible_paragraphs: [...this.contexts.keys()], pdf_fallback: this.engineName !== 'lualatex' ? pdf : [...allPages.values()].some(dl => !isExact(dl)) ? pdf : null, pdf_path: pdf, wall_ms: performance.now() - started, passes });
+      if (this.closed || this.engineName !== 'lualatex') return;
+      const preamble = effectivePreamble(files, this.mainFile);
+      if (hash(effectivePreamble(this.files, this.mainFile)) !== hash(preamble)) return;
       if (!this.engine || hash(preamble) !== this.preambleHash) {
         this.engine?.close(); const generation = ++this.generation;
         this.event({ event: 'EngineState', engine_generation: generation, state: 'Starting' });
-        const engine = new LiveEngine(this.processes, this.executable, snapshot, path.join(this.buildDir, 'live-' + generation), environment(snapshot, this.mainFile, path.join(this.buildDir, 'font-cache')), this.config.compileTimeoutMs);
+        if (this.closed || generation !== this.generation) return;
+        const engine = new LiveEngine(this.processes, this.executable, snapshot, path.join(this.buildDir, 'live-' + generation), { ...environment(snapshot, this.mainFile, path.join(this.buildDir, 'font-cache')), RTEX_MATH_OWNER_ATTRIBUTE: this.options.mathOwnerAttribute === undefined ? undefined : String(this.options.mathOwnerAttribute) }, this.config.compileTimeoutMs);
         this.engine = engine;
         try {
           await engine.start(preamble, path.join(output, job + '.aux'));
@@ -276,6 +375,7 @@ export class Session extends EventEmitter {
           this.event({ event: 'EngineState', engine_generation: generation, state: 'Failed', reason: String(error) });
         }
       }
+      if (this.engine) await this.engine.request({ op: 'labels', labels: readAuxLabels(path.join(output, job + '.aux')) });
       // Keep enough immutable layouts for hosts that are reading the previous one.
       if (this.layoutVersion > 3) rmSync(path.join(this.buildDir, `layout-${this.layoutVersion - 3}.pdf`), { force: true });
     } catch (error) {
@@ -284,36 +384,46 @@ export class Session extends EventEmitter {
         this.event({ event: 'EngineState', engine_generation: this.generation, state: 'Failed', reason: String(error) });
       }
     } finally {
-      this.backgroundRunning = false;
       const retained = this.backgroundDirs.slice(-3);
-      this.backgroundDirs = this.backgroundDirs.filter(folder => { if (retained.includes(folder) || folder === this.liveSnapshot) return true; try { rmSync(folder, { recursive: true, force: true }); } catch { return true; } return false; });
+      this.backgroundDirs = this.backgroundDirs.filter(folder => { if (retained.includes(folder) || folder === this.liveSnapshot || folder === this.standby?.dir) return true; try { rmSync(folder, { recursive: true, force: true }); } catch { return true; } return false; });
+      if (!this.closed && this.convergence === 'Converged') await this.prepareStandby();
+      this.backgroundRunning = false;
       if (!this.closed && (this.backgroundPending || revision !== this.revision)) { this.backgroundPending = false; this.schedule(); }
     }
   }
-  private buildContexts(capture: Capture, files: Map<string, FileState>, pages: Map<number, DisplayList>, revision: number): { placements: Placement[]; contexts: Map<number, Context> } {
+  private async buildContexts(capture: Capture, files: Map<string, FileState>, pages: Map<number, DisplayList>, revision: number): Promise<{ placements: Placement[]; contexts: Map<number, Context> }> {
     const contexts = new Map<number, Context>(), placements: Placement[] = [];
     const counters: Record<string, number> = {}, formats: Record<string, string> = {}, macros: Record<string, string> = {};
+    const paragraphBySeq = new Map(capture.paragraphs.map(paragraph => [paragraph.seq, paragraph]));
+    const rowIndexes = new Map<number, Map<string, number>>();
+    for (const [page, dl] of pages) rowIndexes.set(page, new Map(dl.lines.map((line, index) => [line.unit + ':' + line.row, index])));
+    let visited = 0;
     const matches = new Map<number, number>();
     for (const unit of capture.units) {
+      if (++visited % 64 === 0) { await new Promise<void>(resolve => setImmediate(resolve)); if (this.closed) break; }
       Object.assign(counters, asObject(unit.counters)); Object.assign(formats, asObject(unit.thefmt)); Object.assign(macros, asObject(unit.macros));
       const rawFile = (unit.file || this.mainFile).replaceAll('\\', '/').replace(/^\.\//, '');
       const file = path.isAbsolute(rawFile) ? path.relative(this.projectRoot, rawFile).replaceAll('\\', '/') : rawFile;
       const spans = files.get(file)?.spans || [];
-      const span = spans.find(s => unit.begin_line >= s.firstLine && unit.begin_line <= s.lastLine)
-        || spans.find(s => s.firstLine > unit.begin_line && (unit.end_line || 0) >= s.firstLine);
-      if (!span || span.kind !== 'paragraph' || unit.kind !== 'par' || unit.nest !== 1 || !eligible(span.text)) continue;
+      let low = 0, high = spans.length;
+      while (low < high) { const mid = (low + high) >>> 1; if (spans[mid].lastLine < unit.begin_line) low = mid + 1; else high = mid; }
+      const candidate = spans[low];
+      const span = candidate && (candidate.firstLine <= unit.begin_line || (unit.end_line || 0) >= candidate.firstLine) ? candidate : undefined;
+      if (!span || ['preamble', 'trailer'].includes(span.kind) || !['par', 'env', 'heading'].includes(unit.kind) || unit.nest !== 1 || !everyparAllowed(unit.everypar || '') || this.policy.classify(span.text).reasons.length > 0) continue;
       matches.set(span.id, (matches.get(span.id) || 0) + 1);
-      const first = capture.paragraphs.find(p => unit.seqs.includes(p.seq) && p.begin);
+      const first = unit.seqs.map(seq => paragraphBySeq.get(seq)).find(paragraph => paragraph?.begin);
       unit.context = { kind: unit.kind, name: unit.name, ints: first?.ints || unit.ints, dims: first?.dims || unit.dims, glues: first?.glues || unit.glues, parshape: first?.parshape || unit.parshape, everypar: unit.everypar || '', nobreak: unit.nobreak || false, afterindent: unit.afterindent || false, noskipsec: unit.noskipsec || false, counters: { ...counters }, thefmt: { ...formats }, macros: { ...macros }, begin: { nfss: first?.begin?.nfss || unit.nfss, color: first?.begin?.color || unit.color } };
       const rows: Context['rows'] = [];
       for (const row of unit.placements) {
         const dl = pages.get(row.page); if (!dl) continue;
-        const index = dl.lines.findIndex(line => line.unit === unit.uid && line.row === row.row);
-        if (index >= 0) rows.push({ dl, index });
+        const index = rowIndexes.get(row.page)?.get(unit.uid + ':' + row.row);
+        if (index !== undefined) rows.push({ dl, index });
       }
       if (!rows.length || rows.length !== unit.placements.length) continue;
+      const shape = this.policy.classify(span.text);
+      if (shape.kind !== unit.kind || (shape.name && shape.name !== unit.name)) continue;
       contexts.set(span.id, { file, span, unit, rows, verified: false, revision });
-      placements.push({ par_id: span.id, fragments: fragments(unit.placements), lines: rows.length, kind: 'par' });
+      placements.push({ par_id: span.id, fragments: fragments(unit.placements), lines: rows.length, kind: unit.kind });
     }
     for (const [id, count] of matches) if (count !== 1) contexts.delete(id);
     return { placements: placements.filter(p => contexts.has(p.par_id)), contexts };
@@ -327,14 +437,16 @@ export class Session extends EventEmitter {
     try {
     const target = path.resolve(out);
     if (inside(dir, target)) throw new Error('Export destination cannot be inside its temporary directory');
-    this.snapshot(source, new Map(this.files)); mkdirSync(output, { recursive: true });
+    await this.snapshot(source, new Map(this.files)); if (this.closed) throw new Error('Session is closed'); mkdirSync(output, { recursive: true });
     for (const file of this.files.keys()) mkdirSync(path.join(output, path.dirname(file)), { recursive: true });
+    const tools = new AuxiliaryTools(this.processes, this.executable, this.config.passTimeoutMs, this.options.bibTool, this.options.index, this.options.auxExecutables);
     const job = path.basename(this.mainFile, path.extname(this.mainFile)); let signature = '', converged = false, passes = 0;
     const driver = path.join(dir, 'rtex-export.tex');
-    writeFileSync(driver, INPUT_PATH_HOOK + '\\input{' + texPath(this.mainFile) + '}');
+    writeFileSync(driver, inputPathHook(this.engineName, source, this.mainFile) + INDEX_HOOK + '\\input{' + texPath(this.mainFile) + '}');
     for (; passes < this.config.maxPasses; passes++) {
       const result = await this.processes.run(this.executable, ['-interaction=nonstopmode', '-halt-on-error', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), texPath(driver)], source, environment(source, this.mainFile, path.join(this.buildDir, 'font-cache')), this.config.passTimeoutMs);
       if (this.closed || result.code) throw new Error('PDF export failed: ' + result.log.slice(-2000));
+      await tools.run(source, this.mainFile, output, environment(source, this.mainFile, path.join(this.buildDir, 'font-cache')));
       const next = auxiliarySignature(output);
       if (signature === next && !/Rerun to get|Please \(re\)run|There were undefined references|No file .+\.(?:bbl|ind)\./.test(result.log)) { converged = revision === this.revision; passes++; break; } signature = next;
     }
@@ -345,7 +457,7 @@ export class Session extends EventEmitter {
       rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
   }
-  close(): void { this.closed = true; clearTimeout(this.timer); this.engine?.close(); this.processes.close(); this.fastQueue.clear(); this.removeAllListeners(); }
+  close(): void { this.closed = true; clearTimeout(this.timer); this.engine?.close(); this.standby?.engine.close(); this.processes.close(); this.fastQueue.clear(); this.removeAllListeners(); }
 }
 function emptyDrawing(): DisplayList { return { kind: 'paragraph', unit: 'sp', width: 0, height: 0, depth: 0, page: 0, page_width: 0, page_height: 0, origin: [0, 0], fonts: {}, flags: {}, images_info: {}, lines: [], other: [], glyphs: 0, inserts: 0 }; }
 function placeRows(original: CapturedRow[], dl: DisplayList): { fragments: Fragment[]; stale: boolean } {
@@ -364,11 +476,19 @@ function parseErrors(log: string): Array<{ severity: 'error'; message: string }>
 }
 
 function auxiliarySignature(dir: string): string {
-  const items: string[] = [];
-  const visit = (folder: string) => { for (const entry of readdirSync(folder, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-    const file = path.join(folder, entry.name);
-    if (entry.isDirectory()) visit(file);
-    else if (/\.(aux|toc|lof|lot|out|bcf|bbl|idx|ind)$/.test(entry.name)) items.push(path.relative(dir, file), readFileSync(file).toString('base64'));
-  } };
-  visit(dir); return hash(items.join('|'));
+  const digest = createHash('sha256'); let bytes = 0, count = 0;
+  const visit = (folder: string, depth: number) => {
+    if (depth > 12) throw new Error('Auxiliary nesting limit exceeded');
+    for (const entry of readdirSync(folder, { withFileTypes: true }).sort((a,b) => a.name.localeCompare(b.name))) {
+      if (++count > 10000) throw new Error('Auxiliary file count exceeded');
+      const file = path.join(folder, entry.name);
+      if (entry.isDirectory()) visit(file, depth + 1);
+      else if (entry.isFile() && /\.(aux|toc|lof|lot|out|bcf|bbl|idx|ind)$/.test(entry.name)) {
+        const size = statSync(file).size; bytes += size;
+        if (size > 32 * 1024 * 1024 || bytes > 64 * 1024 * 1024) throw new Error('Auxiliary size limit exceeded');
+        digest.update(path.relative(dir, file)).update('\0').update(readFileSync(file)).update('\0');
+      }
+    }
+  };
+  visit(dir, 0); return digest.digest('hex');
 }

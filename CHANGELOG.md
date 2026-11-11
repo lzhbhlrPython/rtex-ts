@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.7
+
+- Adapt balanced source units, package vocabulary, opaque arguments, recursive macro guards, body setup and custom captured environments from pinned realtime-tex 0.0.7. Unknown syntax remains background-only in the default allow-list mode.
+- Add preloaded background LuaLaTeX passes, BibTeX/Biber and whitelisted index scheduling, label refresh, math ownership records, background pause/resume, statistics and live-unit verification.
+- Add XeLaTeX/pdfLaTeX PDF-only layout/export, including nested main-file lookup. LuaLaTeX remains the only live glyph engine.
+- Move snapshot I/O off the synchronous edit path, bound copy concurrency and index layout/context lookups. Reuse installed live contexts.
+- Use raw UTF-8 compile frames and binary Windows request pipes. Keep vendored Lua/TeX bytes unchanged.
+- Include production website dependency licenses in the independently deployed site.
+- Expand real-engine tests; platform claims require the new CI run. Picture-cache scheduling and full upstream parity are still outstanding.
+
 ## 0.1.6
 
 - Record successful Linux, macOS and Windows real LuaLaTeX integration and the Node 22/24/26 package matrix for 0.1.5. MiKTeX remains unverified.

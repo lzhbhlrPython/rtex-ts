@@ -42,6 +42,11 @@ export const docs = [
     file: "docs/compatibility",
   },
   {
+    id: "parity",
+    title: { "zh-CN": "上游能力对照", en: "Capability coverage" },
+    file: "docs/upstream-parity",
+  },
+  {
     id: "upstream",
     title: { "zh-CN": "上游与研究来源", en: "Upstream & research" },
     file: "UPSTREAM",

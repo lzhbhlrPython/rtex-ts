@@ -24,3 +24,9 @@ test('missing executables report failure without crashing or writing source',asy
  await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('No failure event')),3000);session.subscribe(event=>{if(event.event==='EngineState'&&event.state==='Failed'){clearTimeout(timer);resolve()}})});
  assert.ok(events.some(e=>e.event==='Diagnostics'));session.close();
 });
+
+test('a build-directory alias cannot resolve to the project or escape from inside it',async t=>{
+ const root=fixture(t),outside=fs.mkdtempSync(path.join(process.env.RUNNER_TEMP||os.tmpdir(),'rtex-build-path-'));t.after(()=>fs.rmSync(outside,{recursive:true,force:true}));
+ const alias=path.join(outside,'alias');fs.symlinkSync(root,alias,'junction');await assert.rejects(Session.open({projectRoot:root,mainFile:'main.tex',buildDir:alias}),/cannot contain/);
+ const escape=path.join(root,'build-alias');fs.symlinkSync(outside,escape,'junction');await assert.rejects(Session.open({projectRoot:root,mainFile:'main.tex',buildDir:escape}),/escapes/);
+});

@@ -13,3 +13,9 @@ test('unknown drawing records force PDF fallback instead of silently dropping co
  assert.equal(isExact(decodeDisplayList(encoded([record(0x70),record(0xff)]))),false);
  assert.equal(isExact(decodeDisplayList(encoded([record(0xff)]))),true);
 });
+test('math ownership decodes glyph/field roles and rejects corrupt counts/roles',()=>{
+ const bytes=Buffer.alloc(60);bytes.writeUInt32LE(1,0);bytes.writeInt32LE(17,4);bytes.writeUInt32LE(9,8);bytes.writeUInt32LE(120,12);bytes.writeUInt32LE(1,32);bytes.writeInt32LE(17,36);bytes[40]=1;bytes[41]=1;
+ const dl=decodeDisplayList(encoded([record(0x29,bytes),record(0xff)]));assert.equal(dl.math_owners.glyphs[0].owner,17);assert.deepEqual(dl.math_owners.fields[0],{owner:17,role:'num',empty:true,bbox:[0,0,0,0]});
+ bytes[40]=99;assert.throws(()=>decodeDisplayList(encoded([record(0x29,bytes),record(0xff)])),/Invalid math ownership/);
+ bytes.writeUInt32LE(0xffffffff,0);assert.throws(()=>decodeDisplayList(encoded([record(0x29,bytes),record(0xff)])),/count/);
+});

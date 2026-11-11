@@ -14,6 +14,9 @@ The TypeScript host was written by closely studying the upstream implementation.
 | `src/display-list.ts` | `crates/rtex-dl/src/binary.rs`, `tex/rtex-dl-bin.lua` | Ports revision 1 binary decoding and the drawing model |
 | `src/engine.ts` | `crates/rtex-core/src/engine.rs`, `transport.rs` | Adapts the persistent TeX driver, context and framed response handling; adapts POSIX FIFOs and Windows named pipes through Node streams |
 | `src/transport.ts` | `crates/rtex-core/src/transport.rs` | Adapts bounded framed FIFO / Windows named-pipe responses to Node streams |
+| `src/tex-syntax.ts`, `src/preamble.ts` | `document.rs`, `eligibility.rs` | Adapt balanced scanning, buffer-aware preamble inputs and setup statements |
+| `src/eligibility.ts`, `src/eligibility-tables.ts` | `eligibility.rs` | Copy/adapt MIT allow-list/package/opaque-argument tables and reimplement context guards and macro analysis; not a line-for-line policy port |
+| `src/auxiliary.ts`, `src/background-engine.ts` | `background.rs`, `tex/rtex-bg.lua`, `tex/latex/rtex-capture.sty` | Adapt bibliography/index signatures and tool selection, labels, one-shot standby engine and plain-export index recording |
 | `src/process.ts` | `crates/rtex-core/src/texlive.rs` | Adapts support lookup, TeX environment, input-path hook and process ownership |
 | `src/session.ts` | `session/`, `layout.rs`, `capture.rs`, `background.rs` | Reimplements the two-path session, capture contexts, paragraph probes, placements, revisions and snapshot passes |
 | `vendor/realtime-tex/tex/` | upstream `tex/` | Unmodified copied source, retaining upstream authorship |
@@ -28,11 +31,11 @@ LuaTeX, LuaLaTeX, TeX Live, fonts, document classes and packages retain their ow
 
 ## Differences and limits
 
-Version 0.1 focuses on ordinary paragraphs and inline mathematics. It probes the old paragraph against full-layout rows before publishing a live result, and rejects unsafe or unsupported commands. Headings, block environments, unknown macros, structural changes, and preamble edits use background layout. Bibliography/index tools are not automatically run. Background passes are cold LuaLaTeX runs; the upstream warm background engine and picture-cache scheduler have not been ported.
+Version 0.1.7 expands source units and eligibility, body setup, warm background passes, bibliography/index scheduling, math ownership and CLI verification. [Capability coverage](docs/upstream-parity.md) records the remaining gaps. It is not a feature-complete or API-compatible upstream port. No C ABI/Rust crate is provided.
 
-The TypeScript API uses Node event listeners, camelCase configuration and explicit UTF-8 edits. Its JSON-lines API follows familiar upstream command/event names, but does not implement the entire upstream API, C ABI, math ownership interface, performance profile or compatibility guarantees. TeXPro is a separate host, not an upstream dependency.
+The response transport follows upstream's framed FIFO / Windows named-pipe design through Node streams, without a native npm module. Compile requests use upstream raw UTF-8 frames, and Windows uses a second binary named pipe to avoid text-mode transformations. JSON is retained for context/control commands. Frames and queued replies are bounded and pending readers are aborted on cleanup.
 
-The response transport follows upstream's framed FIFO / Windows named-pipe design through Node streams, without a native npm module. JSON stdin requests remain escaped on Windows; the response stream is binary. The adaptation bounds frames and pending replies and aborts waiting readers during cleanup.
+The default allow-list policy also performs old-source probes; a host may explicitly choose vocabulary probing. Macro and package inference is conservative and narrower than the entire upstream policy. PDF-only XeLaTeX/pdfLaTeX paths are an rtex-ts extension, not the Lua live engine. The TypeScript API uses Node listeners, camelCase configuration and explicit UTF-8 edits. TeXPro is a separate host, not a dependency.
 
 Report issues to the rtex-ts repository. Please reproduce issues with upstream rtex before reporting them upstream as upstream failures.
 

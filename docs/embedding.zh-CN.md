@@ -31,11 +31,18 @@ session.setDocument('main.tex', source.replace('Hello', 'Hello world'));
 
 `Session.open(config)` 接收 `projectRoot`、`mainFile`，以及可选的 `buildDir`、`lualatex`、`debounceMs`（300）、`compileTimeoutMs`（5000）、`passTimeoutMs`（120000）、`maxPasses`（5）、`maxSourceBytes`（每文件 4 MiB）和 `fastBudgetMs`（50）。初始源文缓冲区另有合计 64 MiB 限制；快照限制为 256 MiB 与 10,000 个文件。非法路径、限制和编辑会抛出异常。
 
+
+0.1.7 新增配置：`engine`（`lualatex`、`xelatex`、`pdflatex`）、`texExecutable`、`eligibility`（默认 `allowlist`，可选 `probe`）、`trustedMacros`、`unitEnvs`、`mathOwnerAttribute`（0..65535）、`bibTool`（默认 `auto`，可选 `bibtex`、`biber`、`none`）、`index`（true）、`warmBackground`（LuaLaTeX 默认 true）、`fastOnStaleContext`。`auxExecutables` 可指定 `bibtex`、`biber` 和白名单索引程序路径，均使用参数数组及受控工作目录。宏包/宏推断保持保守；显式信任宏是宿主策略，不是沙箱。
+
+XeLaTeX/pdfLaTeX 返回仅 PDF 的 `LayoutUpdate`：`pages_changed` 和 `eligible_paragraphs` 为空，`pdf_fallback` 指向 PDF，不启动实时引擎，也不发实时引擎 `Ready`。这两种模式应等待 `LayoutUpdate`。
 - `setDocument(path, text)` 计算一次最小修改，立即返回 `EditResult`。
 - `applyEdit(path, { start, end, text })` 替换 `[start, end)` 范围的 **UTF-8 字节**；切开字符、越界或倒置范围都会被拒绝。
 - `documentText(path)` 返回会话中的最新缓冲区，包含未保存修改。
 - `spans(path)` 返回源单元 ID、字节范围、文本与行号；这是保守的宿主单元，不是完整 TeX AST。
 - `versions()`、`status()` 提供修订及收敛状态。
+- `stats()` 返回版本、收敛状态、源码字节、候选单元、待处理实时任务、拥有进程及后台状态。
+- `verify()` 不修改源码，对候选单元做探针，返回 `{ sourceRevision, stale, units }`；空列表不证明文档通过验证，仅用于 LuaLaTeX。
+- `pauseBackground(true)` 暂缓后续后台工作，`false` 恢复待处理布局；不会取消已运行的轮次。
 - `requestLayout()` 立即安排完整布局，不保存源文件。
 - `exportPdf(out)` 在不加载采集宏包的情况下重新执行普通 LuaLaTeX，返回 `{ path, converged }`；`converged: false` 不代表已收敛。
 - `subscribe(listener)` 返回取消订阅函数，也可以使用 Node EventEmitter 的 `event` 通道。
@@ -70,7 +77,7 @@ rtex-ts serve --project /path/to/project --main main.tex --build /path/to/sessio
 
 支持 `set_document`、`edit`、`spans`、`status`、`request_layout`、`export_pdf` 与 `quit`。字段见 README，`export_pdf` 要求 `out`，`spans` 使用 `path`。成功回复会回传可选 `id`；失败使用 `{ "reply": "error", "message": "..." }`，未知命令被拒绝。绘制事件使用 `event` 字段。事件与回复可能交错，需要持续读取 stdout。
 
-stdin 关闭时结束会话，stdout 仅输出 JSON-lines。慢消费者的待输出数据上限为 64 MiB。协议借鉴上游，但只实现一个子集：没有 C ABI、后台暂停 API、Rust 依赖、自动参考文献／索引工具调度或上游 API 兼容性承诺。
+stdin 关闭时结束会话，stdout 仅输出 JSON-lines。慢消费者的待输出数据上限为 64 MiB。协议借鉴上游，但只实现一个子集：没有 C ABI、Rust 依赖或上游 API 兼容性承诺。
 
 ## 安全与分发
 
@@ -83,3 +90,8 @@ stdin 关闭时结束会话，stdout 仅输出 JSON-lines。慢消费者的待�
 后台显示列表、上下文与 PDF 全部可用后才原子安装版面；编译失败保留上次有效版面。导出无论成功或失败都会清理临时目录，每个会话同时只允许一次导出。关闭的实时引擎在进程退出后释放工作目录。
 
 CLI 在收到换行前就限制每条请求的 UTF-8 字节数为 8 MiB。输入消费遵循输出背压，不建立无限请求队列。导出异步运行，因此期间仍能处理 `status` 与 `quit`；拒绝第二个并发导出。
+
+
+`pause_background` 需要布尔字段 `paused`。`verify` 异步执行，同一时间最多一次。独立命令新增 `export --out FILE`、`verify`、`profile` 和 `dl2json --input FILE`。`profile` 是 Node 内存/CPU 快照，不是 TeX 进程树资源或延迟分析；`verify` 仅检查实时候选，不检查 PDF 视觉一致性。配置参数包括 `--engine`、`--tex`、`--eligibility`、`--trusted-macros`、`--unit-envs`、`--math-owner-attribute`、`--bib-tool`、`--no-index`、`--no-warm-background`。
+
+辅助工具基于可信文档请求执行：`auto` 在有 `.bcf` 时选 Biber，否则遇 `\bibdata` 时用 BibTeX；索引程序限 makeindex/texindy/xindy/truexindy/upmendex/mendex。工具及文档依赖需要另装，失败保留上次有效布局。

@@ -38,3 +38,10 @@ test('interior paragraph edits match full segmentation and preserve subsequent U
     assert.deepEqual(actual.map(({id,...s})=>s), expected.map(({id,...s})=>s));
   }
 });
+
+test('Verbatim and inline package options cannot invent main-document boundaries',()=>{
+ for(const literal of ['\\begin {Verbatim}\\begin{document} fake\\end{Verbatim}','\\lstinline[language=TeX]|\\begin{document}|','\\mintinline{tex}{\\begin{document}}']){
+  const source=literal+'\n\\documentclass{article}\n\\begin{document}Real.\\end{document}';
+  assert.ok(splitPreamble(source).preamble.includes('documentclass{article}'));
+ }
+});

@@ -31,11 +31,18 @@ Open returns before the first background layout. Subscribe immediately. Unsaved 
 
 `Session.open(config)` accepts `projectRoot`, `mainFile`, and optional `buildDir`, `lualatex`, `debounceMs` (300), `compileTimeoutMs` (5000), `passTimeoutMs` (120000), `maxPasses` (5), `maxSourceBytes` (4 MiB/file), and `fastBudgetMs` (50). Source buffers are additionally bounded to 64 MiB in total; snapshots to 256 MiB and 10,000 files. Invalid paths, limits and edits throw.
 
+
+Additional options in 0.1.7: `engine` (`lualatex`, `xelatex`, `pdflatex`), `texExecutable`, `eligibility` (`allowlist` default or opt-in `probe`), `trustedMacros`, `unitEnvs`, `mathOwnerAttribute` (0..65535), `bibTool` (`auto` default, `bibtex`, `biber`, `none`), `index` (true), `warmBackground` (true for LuaLaTeX), and `fastOnStaleContext`. `auxExecutables` can override `bibtex`, `biber` or whitelisted index-program paths; all use argument arrays and controlled working directories. Package/macro inference remains conservative. Explicitly trusted macros are a host policy decision, not a sandbox.
+
+XeLaTeX/pdfLaTeX emit PDF-only `LayoutUpdate`: `pages_changed` and `eligible_paragraphs` are empty, `pdf_fallback` names the PDF. They do not start a live engine or emit live-engine `Ready`. Wait for `LayoutUpdate` in these modes.
 - `setDocument(path, text)` computes one minimal replacement and returns an `EditResult`.
 - `applyEdit(path, { start, end, text })` replaces **UTF-8 bytes** in `[start, end)`. A split character, reversed or out-of-range edit is rejected.
 - `documentText(path)` reads the session's current buffer, including unsaved edits.
 - `spans(path)` returns current span IDs, byte ranges, text and source lines; these are conservative host units, not a complete TeX AST.
 - `versions()` and `status()` expose revisions and convergence.
+- `stats()` reports versions, convergence, source bytes, eligible units, pending live work, owned processes and background state.
+- `verify()` probes eligible captured units without editing source; returns `{ sourceRevision, stale, units }`. An empty unit list does not certify the document. It is LuaLaTeX-only.
+- `pauseBackground(true)` defers later background work; `false` resumes a pending layout. An already running pass is not cancelled.
 - `requestLayout()` schedules a full layout now, without writing original source.
 - `exportPdf(out)` performs fresh ordinary LuaLaTeX passes without the capture package. It returns `{ path, converged }`; `converged: false` is not a successful convergence guarantee.
 - `subscribe(listener)` returns an unsubscribe function. The equivalent Node EventEmitter channel is `event`.
@@ -68,9 +75,9 @@ Pages with raw PDF literals or unsupported operations require PDF rendering. Typ
 rtex-ts serve --project /path/to/project --main main.tex --build /path/to/session-cache
 ```
 
-Commands are `set_document`, `edit`, `spans`, `status`, `request_layout`, `export_pdf`, and `quit`. They use the fields shown in README; `export_pdf` requires `out`, `spans` takes `path`. Optional `id` values are echoed on successful replies. Failures use `{ "reply": "error", "message": "..." }`; unknown commands are rejected. Drawing events use an `event` discriminator. Do not assume replies and events alternate; drain stdout continuously.
+Commands are `set_document`, `edit`, `spans`, `status`, `stats`, `ping`, `pause_background`, `verify`, `request_layout`, `export_pdf`, and `quit`. `pause_background` requires a boolean `paused`; `verify` runs asynchronously and only one verification may run at once. They use the fields shown in README; `export_pdf` requires `out`, `spans` takes `path`. Optional `id` values are echoed on successful replies. Failures use `{ "reply": "error", "message": "..." }`; unknown commands are rejected. Drawing events use an `event` discriminator. Do not assume replies and events alternate; drain stdout continuously.
 
-The server closes the session when stdin closes. Stdout is JSON-lines only. It bounds output queued for a slow consumer to 64 MiB. This protocol resembles upstream rtex but intentionally implements a subset; there is no C ABI, pause-background API, Rust dependency, automatic bibliography/index tooling or upstream API-compatibility promise.
+The server closes the session when stdin closes. Stdout is JSON-lines only. It bounds output queued for a slow consumer to 64 MiB. This protocol resembles upstream rtex but intentionally implements a subset; there is no C ABI, Rust dependency or upstream API-compatibility promise. Standalone commands also include `export --out FILE`, `verify`, `profile` and `dl2json --input FILE`. `profile` reports a Node memory/CPU snapshot, not TeX process-tree resource use or a latency profile. `verify` checks eligible live units only, not PDF visual equality. Configuration flags include `--engine`, `--tex`, `--eligibility`, `--trusted-macros`, `--unit-envs`, `--math-owner-attribute`, `--bib-tool`, `--no-index`, and `--no-warm-background`.
 
 ## Security and distribution
 
@@ -83,3 +90,5 @@ Ship `dist/`, the vendored Lua/TeX support directory, `LICENSE`, `THIRD_PARTY_NO
 A background layout is installed atomically after its display lists, contexts and PDF are available. Failed compilations retain the previous valid layout. Export scratch directories are removed after success or failure; only one export per session runs at a time. Closed live engines release their work directories after their processes exit.
 
 CLI requests are limited to 8 MiB of UTF-8 bytes before a newline is received. Input consumption follows output backpressure without an unbounded request queue. Export runs asynchronously, so `status` and `quit` remain available; a second concurrent export is rejected.
+
+Auxiliary tools run on trusted document requests. `auto` chooses Biber when a `.bcf` exists, otherwise BibTeX for `\bibdata`; index programs are restricted to makeindex/texindy/xindy/truexindy/upmendex/mendex. The tool programs and document dependencies must be installed separately. Failure preserves the previous valid layout.

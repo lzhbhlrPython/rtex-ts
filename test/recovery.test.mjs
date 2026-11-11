@@ -11,9 +11,9 @@ async function fixture(t) {
   const root = fs.mkdtempSync(path.join((process.env.RUNNER_TEMP || os.tmpdir()), 'rtex-recovery-'));
   const source = '\\documentclass{article}\n\\begin{document}\nHello.\n\\end{document}\n';
   fs.writeFileSync(path.join(root, 'main.tex'), source);
-  const session = await Session.open({ projectRoot: root, mainFile: 'main.tex', maxPasses: 1 });
+  const session = await Session.open({ projectRoot: root, mainFile: 'main.tex', maxPasses: 1, warmBackground: false });
   clearTimeout(session.timer);
-  session.engine = { close() {} };
+  session.engine = { close() {}, async request() { return {op:'ok'}; } };
   session.preambleHash = createHash('sha256').update(splitPreamble(source).preamble).digest('hex');
   t.after(() => { session.close(); fs.rmSync(root, { recursive: true, force: true }); });
   return { root, session };
@@ -56,6 +56,7 @@ test('export scratch data is removed on success and failure; only one export run
   const out = path.join(root, 'final.pdf');
   const pending = session.exportPdf(out);
   await assert.rejects(session.exportPdf(out), /already running/);
+  while (!release) await new Promise(resolve => setImmediate(resolve));
   release(); await pending;
   assert.ok(fs.existsSync(out));
   assert.equal(fs.readdirSync(session.buildDir).some(name => name.startsWith('export-')), false);
@@ -92,4 +93,21 @@ test('a delayed live result cannot overwrite an edit-away-and-back revision', as
   assert.equal(events.filter(e=>e.event==='ParagraphUpdate'&&e.status==='ok').length,0);
   releases.shift()(); await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(events.filter(e=>e.event==='ParagraphUpdate'&&e.status==='ok').map(e=>e.versions.source_revision),[3]);
+});
+
+test('closing inside a Starting event cannot start a new owned process', async t => {
+  const { session } = await fixture(t); session.engine = undefined; session.preambleHash = '';
+  session.processes.run = async (_exe,args) => artifacts(args);
+  session.processes.spawn = () => { throw new Error('Process spawned after close'); };
+  const failures=[];
+  session.subscribe(event=>{if(event.event==='EngineState'&&event.state==='Starting')session.close();if(event.event==='EngineState'&&event.state==='Failed')failures.push(event.reason);});
+  await session.background(); assert.deepEqual(failures,[]); assert.deepEqual(session.processIds(),[]);
+});
+test('a leaking old-source probe closes the engine before any new-source compile',async t=>{
+ const {session}=await fixture(t),span=session.spans('main.tex').find(s=>s.kind==='paragraph');let closes=0,compiles=0;const events=[];
+ session.contexts.set(span.id,{file:'main.tex',span,unit:{context:{},placements:[]},rows:[],verified:false,revision:0});session.engine={close(){closes++;},async request(command){if(command.op==='compile'){compiles++;return{op:'result',status:'ok',leaks:['counter'],dl:drawing};}return{op:'ok'};}};session.subscribe(e=>events.push(e));
+ session.setDocument('main.tex',session.documentText('main.tex').replace('Hello','Hallo'));await new Promise(r=>setImmediate(r));assert.equal(compiles,1);assert.equal(closes,1);assert.ok(events.some(e=>e.event==='EngineState'&&e.state==='Restarting'));assert.ok(!events.some(e=>e.event==='ParagraphUpdate'&&e.status==='ok'));
+});
+test('closing while an asynchronous snapshot is pending never spawns TeX',async t=>{
+ const {session}=await fixture(t);session.engine=undefined;let release;const snapshot=session.snapshot.bind(session);session.snapshot=async(...args)=>{await new Promise(r=>release=r);return snapshot(...args);};let runs=0;session.processes.run=async()=>{runs++;return{code:0,log:''};};const pending=session.background();session.close();release();await pending;assert.equal(runs,0);assert.deepEqual(session.processIds(),[]);
 });

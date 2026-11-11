@@ -49,6 +49,7 @@ export const text = {
     limitsBody:
       "实际发布能力以文档与 CI 为准。实时字形仅支持 LuaLaTeX；图片与不支持的绘制需要 PDF 回退，段落高度变化的放置在后台收敛前可能近似。",
     readLimits: "查看兼容性边界",
+    thirdParty: "网站依赖许可",
     footer: "MIT 许可 · 外部 TeX 引擎与字体保留各自许可",
     copy: "复制代码",
     copied: "已复制",
@@ -111,6 +112,7 @@ export const text = {
     limitsBody:
       "Docs and actual CI results define verified release capabilities. Live glyphs require LuaLaTeX. Images and unsupported drawings need PDF fallback. Placement after paragraph height changes can be approximate until background convergence.",
     readLimits: "Read compatibility limits",
+    thirdParty: "Website licenses",
     footer:
       "MIT licensed · External TeX engines and fonts retain their own licenses",
     copy: "Copy code",

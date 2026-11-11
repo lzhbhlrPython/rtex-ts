@@ -1,5 +1,6 @@
 /** rtex-ts measurements only; no upstream benchmark numbers or paper fixtures. */
 import fs from 'node:fs';
+import {createHash} from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -10,7 +11,8 @@ const arg = name => { const at = process.argv.indexOf('--' + name); return at < 
 const counts = (arg('pages') || '10,100,300').split(',').map(Number), samples = Number(arg('samples') || 30);
 if (!counts.every(n => Number.isSafeInteger(n) && n > 0 && n <= 500) || !Number.isSafeInteger(samples) || samples < 2 || samples > 10000) throw Error('Invalid benchmark limits');
 const engine = findLuaLaTeX();
-const result = { schema: 1, packageVersion: JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url))).version, measuredAt: new Date().toISOString(), environment: { platform: process.platform, arch: process.arch, node: process.version, cpu: os.cpus()[0]?.model, tex: execFileSync(engine, ['--version'], {encoding:'utf8'}).split('\n')[0] }, method: 'One changed character in the first paragraph; warm persistent engine; initial probe excluded from latency samples; one host process; no viewer/IPC rendering time included. Synthetic OpenType article with explicit page breaks.', results: [] };
+const compiledDigest=createHash('sha256');for(const file of fs.readdirSync(new URL('../dist/',import.meta.url)).filter(name=>name.endsWith('.js')).sort())compiledDigest.update(file).update('\0').update(fs.readFileSync(new URL('../dist/'+file,import.meta.url))).update('\0');
+const result = { schema: 1, compiledSha256:compiledDigest.digest('hex'), packageVersion: JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url))).version, measuredAt: new Date().toISOString(), environment: { platform: process.platform, arch: process.arch, node: process.version, cpu: os.cpus()[0]?.model, tex: execFileSync(engine, ['--version'], {encoding:'utf8'}).split('\n')[0] }, method: 'One changed character in the first paragraph; warm persistent engine; initial probe excluded from latency samples; one host process; no viewer/IPC rendering time included. Synthetic OpenType article with explicit page breaks.', results: [] };
 const percentile = (values, p) => [...values].sort((a,b) => a-b)[Math.min(values.length - 1, Math.ceil(values.length * p) - 1)];
 const distribution = values => ({ p50: percentile(values, .5), p95: percentile(values, .95), p99: percentile(values, .99), max: Math.max(...values) });
 function wait(session, predicate, timeout = 180000) {

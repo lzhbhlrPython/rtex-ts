@@ -49,13 +49,11 @@ function useRoute() {
   return route;
 }
 function scrollToHeading(id: string) {
-  document
-    .getElementById(id)
-    ?.scrollIntoView({
-      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? "instant"
-        : "smooth",
-    });
+  document.getElementById(id)?.scrollIntoView({
+    behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "instant"
+      : "smooth",
+  });
 }
 function Code({ value, locale }: { value: string; locale: Locale }) {
   const { message } = AntApp.useApp();
@@ -204,7 +202,7 @@ function Site() {
           colorPrimary: palette.brand,
           colorBgBase: palette.bg,
           colorTextBase: palette.ink,
-            colorTextLightSolid: dark ? "#18181b" : "#ffffff",
+          colorTextLightSolid: dark ? "#18181b" : "#ffffff",
           borderRadius: 6,
           controlHeight: 40,
           fontFamily:
@@ -454,12 +452,12 @@ function Site() {
                     <CodeOutlined />
                   </div>
                   <div className="metric">
-                    {number(5.28)}
+                    {number(4.80)}
                     <span>ms</span>
                   </div>
                   <p>{t.heroNote}</p>
                   <div className="latency-track">
-                    <span style={{ width: "5.28%" }} />
+                    <span style={{ width: "4.80%" }} />
                   </div>
                   <div className="track-label">
                     <span>0 ms</span>
@@ -504,9 +502,9 @@ function Site() {
                     },
                   ]}
                   dataSource={[
-                    { pages: 10, p50: 2.02, p95: 2.88, sync: 0.25 },
-                    { pages: 100, p50: 3.05, p95: 3.68, sync: 1.25 },
-                    { pages: 300, p50: 5.28, p95: 7.64, sync: 3.32 },
+                    { pages: 10, p50: 1.80, p95: 2.39, sync: 0.39 },
+                    { pages: 100, p50: 2.66, p95: 3.27, sync: 1.33 },
+                    { pages: 300, p50: 4.80, p95: 5.61, sync: 3.38 },
                   ]}
                   scroll={{ x: 580 }}
                 />
@@ -589,6 +587,9 @@ function Site() {
             <div className="wrap">
               <span>rtex-ts {pkg.version}</span>
               <span>{t.footer}</span>
+              <a href={`${import.meta.env.BASE_URL}third-party-licenses.txt`}>
+                {t.thirdParty}
+              </a>
               <a href={github}>GitHub</a>
             </div>
           </footer>

@@ -79,3 +79,26 @@ export class ResponseChannel {
   }
   close(): void { this.fail(new Error('Live engine is closed')); }
 }
+/** Windows Lua opens stdin in text mode. A named request pipe preserves raw byte frames. */
+export class RequestChannel {
+  address = '\\\\.\\pipe\\rtex-req-' + randomUUID();
+  private server?: net.Server; private stream?: net.Socket; private failure?: Error;
+  private connected!: (stream: net.Socket) => void; private disconnected!: (error: Error) => void;
+  private connection = new Promise<net.Socket>((resolve, reject) => { this.connected = resolve; this.disconnected = reject; });
+  constructor() { void this.connection.catch(() => {}); }
+  async open(): Promise<void> {
+    this.server = net.createServer(stream => {
+      if (this.stream || this.failure) { stream.destroy(); return; }
+      this.stream = stream; this.connected(stream); this.server?.close();
+      stream.on('error', error => { this.failure = error; });
+    });
+    this.server.on('error', error => { this.failure = error; });
+    await new Promise<void>((resolve, reject) => { this.server!.once('error', reject); this.server!.listen(this.address, () => { this.server!.off('error', reject); resolve(); }); });
+  }
+  async write(bytes: Buffer): Promise<void> {
+    if (this.failure) throw this.failure;
+    const stream = await this.connection;
+    return new Promise((resolve, reject) => stream.write(bytes, error => error ? reject(error) : resolve()));
+  }
+  close(): void { this.failure = new Error('Request pipe is closed'); this.disconnected(this.failure); this.stream?.destroy(); this.server?.close(); }
+}

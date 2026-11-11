@@ -41,8 +41,23 @@ export function decodeDisplayList(data: Uint8Array): DisplayList {
     else if (tag === 0x26) add(['i', i32(), i32(), i32(), i32(), i32()]);
     else if (tag === 0x27) { const index = u32(); dl.images_info[index] = { page: u32(), pages: u32(), file: str() }; }
     else if (tag === 0x28) { const op = u8(); add(['M', ['save', 'set', 'restore'][op], i32(), i32(), str()]); }
+    else if (tag === 0x29) {
+      const glyphs: NonNullable<DisplayList['math_owners']>['glyphs'] = [], fields: NonNullable<DisplayList['math_owners']>['fields'] = [];
+      const bbox = (): [number, number, number, number] => [i32(), i32(), i32(), i32()];
+      const ng = u32(); if (ng > (limit - p) / 28) throw new Error('Invalid math glyph count');
+      for (let i = 0; i < ng; i++) glyphs.push({ owner: i32(), font: u32(), char: u32(), bbox: bbox() });
+      const nf = u32(); if (nf > (limit - p) / 24) throw new Error('Invalid math field count');
+      const roles = ['num', 'den', 'radicand', 'sup', 'sub', 'degree', 'cell', 'math'] as const;
+      for (let i = 0; i < nf; i++) {
+        const owner = i32(), role = u8(), empty = u8(); u16();
+        if (role < 1 || role > roles.length || empty > 1) throw new Error('Invalid math ownership field');
+        fields.push({ owner, role: roles[role - 1], empty: Boolean(empty), bbox: bbox() });
+      }
+      if (p !== limit) throw new Error('Trailing math ownership bytes');
+      dl.math_owners = { glyphs, fields };
+    }
     else if (tag === 0xff) { ended = true; break; }
-    else if (tag !== 0x29) dl.flags.unknown_record = 1; // Never silently claim fidelity for new drawing operations.
+    else dl.flags.unknown_record = 1; // Never silently claim fidelity for new drawing operations.
     p = limit;
   }
   if (!ended) throw new Error('Display list has no end record');
