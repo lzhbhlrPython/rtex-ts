@@ -4,7 +4,7 @@
 
 The acceptance reference is realtime-tex **0.0.7**, commit `fcff7a5c7f33a288ecf40db886843754c62bbdfd`. This is an engineering coverage map, not a claim of complete compatibility. The Node API is retained; Rust crates and the C ABI are outside the agreed scope.
 
-| Capability | rtex-ts 0.1.9 | Evidence and limits |
+| Capability | rtex-ts 0.1.10 | Evidence and limits |
 | --- | --- | --- |
 | Unsaved buffers, byte edits, stable unit identity | Implemented | UTF-8, nested groups, comments/verbatim, incomplete input and stale-result tests |
 | Paragraph/math/heading/environment segmentation | Adapted | Balanced scanner and custom unit environments; ambiguous capture mappings remain background-only |
@@ -20,4 +20,4 @@ The acceptance reference is realtime-tex **0.0.7**, commit `fcff7a5c7f33a288ecf4
 | Rust ABI/API compatibility | Out of scope | Independent Node API; no Rust executable or native npm dependency |
 | XeLaTeX/pdfLaTeX | Additional PDF-only paths | Full PDF layout/export; no Lua capture, glyph overlays or math-owner metadata |
 
-The new request pipe, standby engine, auxiliary tools and multi-engine PDFs passed all three platform jobs for 0.1.7. Picture caching passed the separate 0.1.8 run; 0.1.9 changes require a new run. See [compatibility](compatibility.md) and [performance methodology](performance.md).
+The new request pipe, standby engine, auxiliary tools and multi-engine PDFs passed all three platform jobs for 0.1.7. Picture caching passed the separate 0.1.8 run; 0.1.10 changes require a new run. See [compatibility](compatibility.md) and [performance methodology](performance.md).

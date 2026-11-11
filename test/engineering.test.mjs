@@ -78,6 +78,6 @@ test('balanced macro inference supports bare names, operators and safe environme
 });
 
 test('TeX environment inherits installation font cache unless an explicit cache is supplied',async t=>{
- const {environment}=await import('../dist/process.js');const cache=fs.mkdtempSync(path.join(os.tmpdir(),'rtex-font-test-'));t.after(()=>fs.rmSync(cache,{recursive:true,force:true}));
+ const {environment}=await import('../dist/process.js');const cache=fs.realpathSync.native(fs.mkdtempSync(path.join(process.env.RUNNER_TEMP||os.tmpdir(),'rtex-font-test-')));t.after(()=>fs.rmSync(cache,{recursive:true,force:true}));
  const inherited=process.env.TEXMFCACHE;assert.equal(environment(cache,'main.tex').TEXMFCACHE,inherited);assert.equal(environment(cache,'main.tex',cache).TEXMFCACHE,cache.replaceAll('\\','/'));
 });

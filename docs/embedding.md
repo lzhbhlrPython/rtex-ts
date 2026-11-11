@@ -95,7 +95,7 @@ CLI requests are limited to 8 MiB of UTF-8 bytes before a newline is received. I
 
 Auxiliary tools run on trusted document requests. `auto` chooses Biber when a `.bcf` exists, otherwise BibTeX for `\bibdata`; index programs are restricted to makeindex/texindy/xindy/truexindy/upmendex/mendex. The tool programs and document dependencies must be installed separately. Failure preserves the previous valid layout.
 
-## Startup cache and policy inference (0.1.9)
+## Startup cache and policy inference (0.1.10)
 
 The default follows the TeX installation font cache, including an existing `TEXMFCACHE`, instead of forcing a fresh cache per session. TeX/the host owns this cache; `close()` does not delete it. Restricted or isolated hosts can set `fontCacheDir` (`--font-cache DIR` in the CLI), outside project sources or inside this session’s build directory. It may be reused across sessions; initial generation still costs time and requires writable cache directories.
 

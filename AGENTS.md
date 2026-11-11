@@ -42,6 +42,7 @@ Read `README.md`, `UPSTREAM.md`, `docs/architecture.md`, and the relevant source
 
 - Run `npm test`, `npm run typecheck`, `npm run test:tex` when LuaLaTeX is available, and `npm pack --dry-run` for package changes.
 - Tests must cover UTF-8 boundaries, incomplete input, comments/verbatim, nested groups, span identity, stale results, crashes/timeouts, path boundaries, cleanup and a tarball-installed CLI/library.
+- Test fixtures passed to TeX path helpers must use `RUNNER_TEMP` when available and `realpathSync.native`; Windows `os.tmpdir()` may contain an 8.3 alias with `~`, which TeX rejects. Do not bypass path validation for fixtures.
 - Real TeX tests use temporary projects; never modify an author's working documents. Missing TeX is a skipped or blocked real integration check, not a pass.
 - Keep Linux/macOS/Windows in CI. Do not report a platform as runtime-tested just because TypeScript builds or a workflow file exists.
 - Measure rtex-ts latency separately. Never reuse upstream's ~1 ms claims as this package's performance numbers.

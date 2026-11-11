@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.1.9
+## 0.1.10
+
+- Normalize the new Windows font-cache test fixture with RUNNER_TEMP and realpathSync.native instead of passing an 8.3 temporary alias to TeX path validation.
+- Include the unpublished 0.1.9 macro, PDF oracle, startup-cache and bilingual site changes; this fixture fix does not change the measured performance path.
+
+## 0.1.9 (unpublished)
 
 - Infer bare/braced macro names, parameterless def, math operators and conservative custom environments; reject deferred declaration pollution and retain old-source probes.
 - Add optional Poppler `pdf-compare`, `verify --pdf` and a library API, with strict pixel defaults, bounds, exit codes and missing-tool failures.
