@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+- Add a standalone React + Ant Design product/documentation site with English/Simplified Chinese routes, local themes, search, locale-aware measurements and repository Markdown.
+- Build the site in GitHub Actions and deploy main to Pages; keep website source/dependencies/output outside npm archives.
+- Stop background/export TeX on the first error to retain the original Windows failure diagnostic.
+
 ## 0.1.2
 
 - Re-segment interior paragraph edits locally and maintain UTF-8/line offsets and stable IDs without quadratic scans. Structural edits retain full parsing.

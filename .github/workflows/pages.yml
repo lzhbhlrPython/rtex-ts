@@ -1,0 +1,44 @@
+name: Documentation and product site
+on:
+  push:
+    branches: [main, codex/upstream-parity-docs]
+    paths: ['website/**', 'docs/**', 'README*.md', 'UPSTREAM.md', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG*.md', 'package.json', '.github/workflows/pages.yml']
+  pull_request:
+    paths: ['website/**', 'docs/**', '*.md', 'package.json', '.github/workflows/pages.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci --prefix website
+      - run: npm run build --prefix website
+        env:
+          PAGES_BASE_PATH: /rtex-ts/
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: website/dist
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v6
+      - uses: actions/deploy-pages@v5
+        id: deployment

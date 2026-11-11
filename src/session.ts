@@ -223,7 +223,7 @@ export class Session extends EventEmitter {
       let signature = '', passes = 0, code = 0, log = '', converged = false;
       const driver = path.join(dir, 'rtex-background.tex');
       writeFileSync(driver, INPUT_PATH_HOOK + '\\RequirePackage{rtex-capture}\\input{' + texPath(this.mainFile) + '}');
-      const args = ['-interaction=nonstopmode', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), texPath(driver)];
+      const args = ['-interaction=nonstopmode', '-halt-on-error', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), texPath(driver)];
       const env = { ...environment(snapshot, this.mainFile, path.join(this.buildDir, 'font-cache')), RTEX_CAPTURE_DIR: texPath(output) };
       for (; passes < this.config.maxPasses; passes++) {
         const result = await this.processes.run(this.executable, args, snapshot, env, this.config.passTimeoutMs); code = result.code; log = result.log;
@@ -333,7 +333,7 @@ export class Session extends EventEmitter {
     const driver = path.join(dir, 'rtex-export.tex');
     writeFileSync(driver, INPUT_PATH_HOOK + '\\input{' + texPath(this.mainFile) + '}');
     for (; passes < this.config.maxPasses; passes++) {
-      const result = await this.processes.run(this.executable, ['-interaction=nonstopmode', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), texPath(driver)], source, environment(source, this.mainFile, path.join(this.buildDir, 'font-cache')), this.config.passTimeoutMs);
+      const result = await this.processes.run(this.executable, ['-interaction=nonstopmode', '-halt-on-error', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), texPath(driver)], source, environment(source, this.mainFile, path.join(this.buildDir, 'font-cache')), this.config.passTimeoutMs);
       if (this.closed || result.code) throw new Error('PDF export failed: ' + result.log.slice(-2000));
       const next = auxiliarySignature(output);
       if (signature === next && !/Rerun to get|Please \(re\)run|There were undefined references|No file .+\.(?:bbl|ind)\./.test(result.log)) { converged = revision === this.revision; passes++; break; } signature = next;

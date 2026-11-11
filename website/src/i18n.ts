@@ -1,0 +1,126 @@
+export const text = {
+  "zh-CN": {
+    docs: "文档",
+    performance: "性能",
+    source: "源码",
+    nav: "打开导航",
+    theme: "切换明暗主题",
+    search: "搜索文档",
+    searchHint: "搜索 API、UTF-8、兼容性…",
+    home: "产品",
+    title: "让排版跟上思路。",
+    intro:
+      "为 Node.js 应用提供低延迟、真实字形的增量 LuaLaTeX 排版。TypeScript API，本地运行，保留 TeX 的排版质量。",
+    start: "开始构建",
+    measure: "查看测量方法",
+    install: "安装到你的工程",
+    heroNote: "300 页合成文档 · 热引擎 · 编辑到字形事件 p50",
+    sampleNote: "Apple M1 Pro / macOS · 50 次修改 · 不含宿主绘制",
+    latency: "低延迟，从每次修改开始。",
+    latencyBody:
+      "局部段落修改复用分段索引与上下文；常驻引擎无需重复加载导言区。完整后台排版随后校正分页和引用。",
+    measured: "本机测量",
+    pages: "文档页数",
+    p50: "事件延迟 p50",
+    p95: "事件延迟 p95",
+    sync: "同步编辑 p50",
+    benchNote:
+      "合成英文 article，单字符修改，首次探针不计。复杂环境、冷启动和完整排版有不同开销。",
+    flowTitle: "即时字形与完整页面，共用一份源码。",
+    flowBody:
+      "未保存修改留在你的缓冲区。可靠的局部结果立即返回；复杂语法与无法确认的结果交给后台。",
+    flow1: "缓冲区修改",
+    flow1body: "UTF-8 字节编辑，稳定段落身份。",
+    flow2: "局部重排",
+    flow2body: "捕获上下文、旧段落探针、真实字形坐标。",
+    flow3: "后台收敛",
+    flow3body: "不可变快照，更新分页、引用与匹配 PDF。",
+    api: "为你的渲染器准备。",
+    apiBody:
+      "返回显示列表与匹配 PDF，宿主掌握字形绘制、交互和应用界面。没有 Rust 可执行程序，也不依赖编辑器插件。",
+    apiLink: "阅读嵌入指南",
+    local: "工程留在本机",
+    localBody:
+      "无托管服务，无 npm 运行时依赖。LuaLaTeX、宏包和字体由用户安装；文档代码以当前用户权限执行，本库不是沙箱。",
+    credit: "建立在开放研究与代码之上",
+    creditBody:
+      "高度参考 Henry Yang 和 realtime-tex 贡献者的 0.0.7 实现，保留上游 Lua/TeX 与 MIT 版权。研究灵感来自 Clemens Lode 的 TUG 2026 论文。独立 TypeScript 改写，不是官方移植。",
+    limits: "实验性版本",
+    limitsBody:
+      "实际发布能力以文档与 CI 为准。实时字形仅支持 LuaLaTeX；图片与不支持的绘制需要 PDF 回退，段落高度变化的放置在后台收敛前可能近似。",
+    readLimits: "查看兼容性边界",
+    footer: "MIT 许可 · 外部 TeX 引擎与字体保留各自许可",
+    copy: "复制代码",
+    copied: "已复制",
+    copyFail: "复制失败，请选中代码复制。",
+    noResults: "没有匹配文档",
+    englishSource: "此来源声明保留英文原文，完整保留作者版权。",
+    updated: "测量日期",
+    section: "本页内容",
+    language: "语言",
+  },
+  en: {
+    docs: "Docs",
+    performance: "Performance",
+    source: "Source",
+    nav: "Open navigation",
+    theme: "Switch color theme",
+    search: "Search docs",
+    searchHint: "Search API, UTF-8, compatibility…",
+    home: "Product",
+    title: "Keep thought and type together.",
+    intro:
+      "Low-latency incremental LuaLaTeX for Node.js applications. A local TypeScript API that returns real glyphs and preserves TeX typography.",
+    start: "Start building",
+    measure: "Read the methodology",
+    install: "Add it to your project",
+    heroNote: "300-page synthetic document · warm engine · edit-to-event p50",
+    sampleNote: "Apple M1 Pro / macOS · 50 edits · host drawing excluded",
+    latency: "Low latency starts with every edit.",
+    latencyBody:
+      "Interior paragraph edits reuse the span index and captured context. A persistent engine keeps the preamble loaded. Background layout then corrects pagination and references.",
+    measured: "Local measurement",
+    pages: "Document pages",
+    p50: "Event latency p50",
+    p95: "Event latency p95",
+    sync: "Synchronous edit p50",
+    benchNote:
+      "Synthetic English article, single-character edits, initial probe excluded. Complex environments, cold start and full layout have different costs.",
+    flowTitle: "Immediate glyphs. Complete pages. One source.",
+    flowBody:
+      "Your buffers retain unsaved edits. Validated local results arrive immediately; complex syntax and uncertain results wait for background layout.",
+    flow1: "Buffer edit",
+    flow1body: "UTF-8 byte edits and stable paragraph identity.",
+    flow2: "Local typesetting",
+    flow2body:
+      "Captured context, old-paragraph probes and real glyph positions.",
+    flow3: "Background convergence",
+    flow3body:
+      "Immutable snapshots update pagination, references and the matching PDF.",
+    api: "Ready for your renderer.",
+    apiBody:
+      "Receive display lists and matching PDFs. Your host owns glyph drawing, interactions and application UI. No Rust executable or editor extension required.",
+    apiLink: "Read the embedding guide",
+    local: "Your project stays local",
+    localBody:
+      "No hosted service or npm runtime dependencies. Install LuaLaTeX, packages and fonts separately. Document code runs with your permissions; this library is not a sandbox.",
+    credit: "Built on open code and research",
+    creditBody:
+      "Closely adapts realtime-tex 0.0.7 by Henry Yang and its contributors, retaining its Lua/TeX code and MIT copyright. Research inspiration: Clemens Lode’s TUG 2026 paper. An independent TypeScript adaptation, not an official port.",
+    limits: "Experimental release",
+    limitsBody:
+      "Docs and actual CI results define verified release capabilities. Live glyphs require LuaLaTeX. Images and unsupported drawings need PDF fallback. Placement after paragraph height changes can be approximate until background convergence.",
+    readLimits: "Read compatibility limits",
+    footer:
+      "MIT licensed · External TeX engines and fonts retain their own licenses",
+    copy: "Copy code",
+    copied: "Copied",
+    copyFail: "Copy failed. Select and copy the code.",
+    noResults: "No matching documents",
+    englishSource:
+      "This provenance notice is preserved in its original English, including complete copyright credits.",
+    updated: "Measured on",
+    section: "On this page",
+    language: "Language",
+  },
+};
