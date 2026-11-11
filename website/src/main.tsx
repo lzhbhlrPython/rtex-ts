@@ -460,8 +460,8 @@ function Site() {
                     <span style={{ width: "4.80%" }} />
                   </div>
                   <div className="track-label">
-                    <span>0 ms</span>
-                    <span>100 ms</span>
+                    <span>{ms(0)}</span>
+                    <span>{ms(100)}</span>
                   </div>
                   <p className="metric-note">{t.sampleNote}</p>
                   <a href={to("docs/performance")}>
@@ -516,6 +516,12 @@ function Site() {
                   }).format(new Date("2026-11-11T00:00:00+08:00"))}
                   .
                 </p>
+                <h3>{t.cacheTitle}</h3>
+                <p>
+                  {t.cacheOff}: <strong>{new Intl.NumberFormat(locale, { style: "unit", unit: "second", maximumFractionDigits: 2 }).format(3.618)}</strong>
+                  {" → "}{t.cacheOn}: <strong>{new Intl.NumberFormat(locale, { style: "unit", unit: "second", maximumFractionDigits: 2 }).format(1.053)}</strong>
+                </p>
+                <p className="caption">{t.cacheNote} <a href={to("docs/performance")}>{t.measure}</a></p>
               </section>
               <section className="flow-section">
                 <div className="wrap">

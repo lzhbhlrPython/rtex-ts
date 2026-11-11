@@ -5,10 +5,11 @@ export class BackgroundEngine {
   private child: ChildProcess;
   private log = '';
   private failure?: Error;
+  private preloaded = false;
   private done: Promise<{ code: number; log: string }>;
   constructor(processes: Processes, executable: string, args: string[], cwd: string, env: NodeJS.ProcessEnv) {
     this.child = processes.spawn(executable, args, cwd, env);
-    const append = (chunk: Buffer) => { this.log = (this.log + chunk.toString('utf8')).slice(-65536); };
+    const append = (chunk: Buffer) => { this.log = (this.log + chunk.toString('utf8')).slice(-65536); if (this.log.includes('RTEX_BG_READY')) this.preloaded = true; };
     this.child.stdout!.on('data', append); this.child.stderr!.on('data', append);
     this.child.stdin!.on('error', error => { this.failure = error; });
     this.done = new Promise((resolve, reject) => {
@@ -19,6 +20,7 @@ export class BackgroundEngine {
     void this.done.catch(error => { this.failure = error; });
   }
   alive(): boolean { return !this.failure && this.child.exitCode === null && this.child.signalCode === null; }
+  ready(): boolean { return this.preloaded && this.alive(); }
   async run(timeout: number): Promise<{ code: number; log: string }> {
     if (this.failure) throw this.failure;
     const timer = setTimeout(() => killTree(this.child), timeout);

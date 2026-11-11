@@ -17,6 +17,7 @@ The TypeScript host was written by closely studying the upstream implementation.
 | `src/tex-syntax.ts`, `src/preamble.ts` | `document.rs`, `eligibility.rs` | Adapt balanced scanning, buffer-aware preamble inputs and setup statements |
 | `src/eligibility.ts`, `src/eligibility-tables.ts` | `eligibility.rs` | Copy/adapt MIT allow-list/package/opaque-argument tables and reimplement context guards and macro analysis; not a line-for-line policy port |
 | `src/auxiliary.ts`, `src/background-engine.ts` | `background.rs`, `tex/rtex-bg.lua`, `tex/latex/rtex-capture.sty` | Adapt bibliography/index signatures and tool selection, labels, one-shot standby engine and plain-export index recording |
+| `src/picture-cache.ts` | `crates/rtex-core/src/piccache.rs` | Adapts ordered picture hashes, guards, manifests, quarantine and eviction; replaces lopdf extraction with installed LuaTeX page embedding, without modifying vendored runtime |
 | `src/process.ts` | `crates/rtex-core/src/texlive.rs` | Adapts support lookup, TeX environment, input-path hook and process ownership |
 | `src/session.ts` | `session/`, `layout.rs`, `capture.rs`, `background.rs` | Reimplements the two-path session, capture contexts, paragraph probes, placements, revisions and snapshot passes |
 | `vendor/realtime-tex/tex/` | upstream `tex/` | Unmodified copied source, retaining upstream authorship |
@@ -31,7 +32,7 @@ LuaTeX, LuaLaTeX, TeX Live, fonts, document classes and packages retain their ow
 
 ## Differences and limits
 
-Version 0.1.7 expands source units and eligibility, body setup, warm background passes, bibliography/index scheduling, math ownership and CLI verification. [Capability coverage](docs/upstream-parity.md) records the remaining gaps. It is not a feature-complete or API-compatible upstream port. No C ABI/Rust crate is provided.
+Versions 0.1.7–0.1.8 expand source units and eligibility, body setup, warm background passes, bibliography/index scheduling, math ownership, picture-cache scheduling and CLI verification. [Capability coverage](docs/upstream-parity.md) records the remaining gaps. It is not a feature-complete or API-compatible upstream port. No C ABI/Rust crate is provided.
 
 The response transport follows upstream's framed FIFO / Windows named-pipe design through Node streams, without a native npm module. Compile requests use upstream raw UTF-8 frames, and Windows uses a second binary named pipe to avoid text-mode transformations. JSON is retained for context/control commands. Frames and queued replies are bounded and pending readers are aborted on cleanup.
 

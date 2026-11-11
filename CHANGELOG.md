@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.8
+
+- Adapt ordered picture scanning, source/setup hashes, conservative effect guards, capture manifests, mismatch quarantine and cache eviction from pinned upstream 0.0.7.
+- Extract only required PDF pages with the installed LuaTeX; bound session caches to 256 entries/64 MiB and four unused passes. Clean export remains uncached; cached drawings still require PDF rendering.
+- Prevent auxiliary/cache continuations from spawning processes after their owner closes; retry a failed cached pass without cache and retain the last valid layout on mismatch.
+- Report standby readiness only after the preamble is loaded; add a reproducible cache-on/off background benchmark and localized product measurements.
+- Add scanner, cache lifecycle and real TikZ invalidation/pagination tests. Record the successful 0.1.7 three-platform multi-engine and auxiliary-tool CI.
+
 ## 0.1.7
 
 - Adapt balanced source units, package vocabulary, opaque arguments, recursive macro guards, body setup and custom captured environments from pinned realtime-tex 0.0.7. Unknown syntax remains background-only in the default allow-list mode.

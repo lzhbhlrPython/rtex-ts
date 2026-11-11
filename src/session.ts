@@ -6,6 +6,7 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { applyByteEdit, editSpans, maskTeX, minimalEdit, splitPreamble, splitSpans } from './document.js';
 import { BackgroundEngine } from './background-engine.js';
+import { PictureCache, scanPictures } from './picture-cache.js';
 import { effectivePreamble } from './preamble.js';
 import { Policy, everyparAllowed } from './eligibility.js';
 import { AuxiliaryTools, readAuxLabels, INDEX_HOOK } from './auxiliary.js';
@@ -66,6 +67,7 @@ export class Session extends EventEmitter {
   private engineName: 'lualatex' | 'xelatex' | 'pdflatex';
   private paused = false;
   private standby?: { engine: BackgroundEngine; dir: string; preamble: string };
+  private pictures?: PictureCache;
   private constructor(config: SessionConfig) {
     super();
     this.projectRoot = realpathSync.native(config.projectRoot);
@@ -87,6 +89,7 @@ export class Session extends EventEmitter {
     this.policy = new Policy('', config);
     this.config = { debounceMs: config.debounceMs ?? 300, compileTimeoutMs: config.compileTimeoutMs ?? 5000, passTimeoutMs: config.passTimeoutMs ?? 120000, maxPasses: config.maxPasses ?? 5, maxSourceBytes: config.maxSourceBytes ?? 4 * 1024 * 1024, fastBudgetMs: config.fastBudgetMs ?? 50 };
     for (const value of Object.values(this.config)) if (!Number.isFinite(value) || value < 1) throw new Error('Invalid session limit');
+    if (this.engineName === 'lualatex' && config.pictureCache !== false) this.pictures = new PictureCache(path.join(this.buildDir, 'picture-cache-' + randomUUID()), this.processes, this.executable, this.config.passTimeoutMs);
     this.env = environment(this.projectRoot, this.mainFile, path.join(this.buildDir, 'font-cache'));
     this.readProject(this.projectRoot, 0);
     if (!this.files.has(this.mainFile)) this.addFile(this.mainFile, readFileSync(main, 'utf8'));
@@ -103,8 +106,8 @@ export class Session extends EventEmitter {
   versions(): Versions { return { source_revision: this.revision, context_revision: this.contextRevision, engine_generation: this.generation, layout_version: this.layoutVersion }; }
   processIds(): number[] { return [...this.processes.children].map(child => child.pid).filter((pid): pid is number => pid !== undefined); }
   status(): { versions: Versions; convergence: string } { return { versions: this.versions(), convergence: this.convergence }; }
-  stats(): { versions: Versions; convergence: string; processes: number[]; files: number; sourceBytes: number; eligibleUnits: number; pendingLive: number; backgroundRunning: boolean; backgroundPaused: boolean; warmBackground: boolean } {
-    return { ...this.status(), processes: this.processIds(), files: this.files.size, sourceBytes: [...this.files.values()].reduce((sum, file) => sum + Buffer.byteLength(file.text), 0), eligibleUnits: this.contexts.size, pendingLive: this.fastQueue.size, backgroundRunning: this.backgroundRunning, backgroundPaused: this.paused, warmBackground: !!this.standby?.engine.alive() };
+  stats(): { versions: Versions; convergence: string; processes: number[]; files: number; sourceBytes: number; eligibleUnits: number; pendingLive: number; backgroundRunning: boolean; backgroundPaused: boolean; warmBackground: boolean; pictureCache: { entries: number; manifestHits: number } | null } {
+    return { ...this.status(), processes: this.processIds(), files: this.files.size, sourceBytes: [...this.files.values()].reduce((sum, file) => sum + Buffer.byteLength(file.text), 0), eligibleUnits: this.contexts.size, pendingLive: this.fastQueue.size, backgroundRunning: this.backgroundRunning, backgroundPaused: this.paused, warmBackground: !!this.standby?.engine.ready(), pictureCache: this.pictures?.stats() || null };
   }
   /** Probe current captured source units without editing buffers or publishing overlays. */
   async verify(): Promise<{ sourceRevision: number; stale: boolean; units: Array<{ id: number; matched: boolean; reason?: string }> }> {
@@ -278,7 +281,7 @@ export class Session extends EventEmitter {
       const preambleFile = path.join(dir, 'rtex-preamble.tex'); writeFileSync(preambleFile, preamble);
       const job = path.basename(this.mainFile, path.extname(this.mainFile));
       const driver = path.join(dir, 'rtex-warm.tex');
-      writeFileSync(driver, INPUT_PATH_HOOK + '\\RequirePackage{rtex-capture}\\input{' + texPath(preambleFile) + '}\\directlua{dofile(kpse.find_file("rtex-bg.lua","lua"))}\\input{' + texPath(this.mainFile) + '}');
+      writeFileSync(driver, INPUT_PATH_HOOK + '\\RequirePackage{rtex-capture}\\input{' + texPath(preambleFile) + '}\\directlua{texio.write_nl("term","RTEX_BG_READY") io.stdout:flush() dofile(kpse.find_file("rtex-bg.lua","lua"))}\\input{' + texPath(this.mainFile) + '}');
       const args = ['-interaction=nonstopmode', '-halt-on-error', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), texPath(driver)];
       const env = { ...environment(snapshot, this.mainFile, path.join(this.buildDir, 'font-cache')), RTEX_CAPTURE_DIR: texPath(output), RTEX_UNIT_ENVS: [...this.policy.unitEnvs].join(','), RTEX_MATH_OWNER_ATTRIBUTE: this.options.mathOwnerAttribute === undefined ? undefined : String(this.options.mathOwnerAttribute) };
       this.standby = { engine: new BackgroundEngine(this.processes, this.executable, args, snapshot, env), dir, preamble };
@@ -310,7 +313,16 @@ export class Session extends EventEmitter {
       const args = ['-interaction=nonstopmode', '-halt-on-error', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), texPath(driver)];
       const env = { ...environment(snapshot, this.mainFile, path.join(this.buildDir, 'font-cache')), RTEX_CAPTURE_DIR: texPath(output), RTEX_UNIT_ENVS: [...this.policy.unitEnvs].join(','), RTEX_MATH_OWNER_ATTRIBUTE: this.options.mathOwnerAttribute === undefined ? undefined : String(this.options.mathOwnerAttribute) };
       const tools = new AuxiliaryTools(this.processes, this.executable, this.config.passTimeoutMs, this.options.bibTool, this.options.index, this.options.auxExecutables);
+      const pictures = this.pictures ? scanPictures(files, this.mainFile) : [];
+      let pictureMismatch = false;
+      const disablePictureCache = async (error: unknown) => {
+        this.pictures = undefined;
+        await fsp.rm(path.join(output, 'pic-manifest.json'), { force: true });
+        this.event({ event: 'Diagnostics', source: 'picture-cache', items: [{ severity: 'warning', message: 'Picture cache disabled; drawing normally: ' + String(error) }] });
+      };
       for (; passes < this.config.maxPasses; passes++) {
+        if (this.pictures) try { await this.pictures.manifest(pictures, path.join(output, 'pic-manifest.json')); } catch (error) { await disablePictureCache(error); }
+        if (this.closed) return;
         let result;
         if (ready && passes === 0) {
           const text = files.get(this.mainFile)!.text, bounds = splitPreamble(text);
@@ -320,13 +332,27 @@ export class Session extends EventEmitter {
         } else result = await this.processes.run(this.executable, args, snapshot, env, this.config.passTimeoutMs);
         code = result.code; log = result.log;
         if (this.closed) return;
+        if (code !== 0 && this.pictures?.stats().manifestHits) {
+          await disablePictureCache(new Error('Cached TeX pass failed; retrying without cached pictures'));
+          if (passes + 1 < this.config.maxPasses) continue;
+        }
         if (code === 0) await tools.run(snapshot, this.mainFile, output, env);
+        pictureMismatch = false;
+        if (code === 0 && this.pictures && pictures.length) {
+          const metadata = path.join(output, job + '.rtex.json');
+          if ((await fsp.stat(metadata)).size > 32 * 1024 * 1024) throw new Error('Capture metadata too large');
+          const captured = JSON.parse(await fsp.readFile(metadata, 'utf8')) as Capture;
+          pictureMismatch = !!captured.pic_mismatch?.length;
+          try { await this.pictures.absorb(pictures, captured.pics || {}, captured.pic_mismatch || [], path.join(output, job + '.pdf'), env, () => this.closed); } catch (error) { await disablePictureCache(error); }
+          if (this.closed) return;
+        }
         const next = auxiliarySignature(output);
-        if (next === signature && code === 0 && !/Rerun to get|Please \(re\)run|There were undefined references|No file .+\.(?:bbl|ind)\./.test(log)) { converged = true; passes++; break; }
+        if (!pictureMismatch && next === signature && code === 0 && !/Rerun to get|Please \(re\)run|There were undefined references|No file .+\.(?:bbl|ind)\./.test(log)) { converged = true; passes++; break; }
         signature = next;
         // Auxiliary tools run before the next immutable pass.
         if (code !== 0) { passes++; break; }
       }
+      if (pictureMismatch) throw new Error('Cached picture boundary mismatch; retaining the last valid layout');
       if (code !== 0 || (this.engineName === 'lualatex' && !existsSync(path.join(output, job + '.rtex.json')))) throw new Error('Background capture failed: ' + log.slice(-6000));
       if (this.engineName === 'lualatex' && (await fsp.stat(path.join(output, job + '.rtex.json'))).size > 32 * 1024 * 1024) throw new Error('Capture metadata too large');
       const capture = this.engineName === 'lualatex' ? JSON.parse(readFileSync(path.join(output, job + '.rtex.json'), 'utf8')) as Capture : { pages: Number([...log.matchAll(/Output written on[\s\S]*?\((\d+) pages?[,.]/g)].at(-1)?.[1] || 1), units: [], paragraphs: [], counters: [] };

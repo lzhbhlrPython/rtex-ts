@@ -75,7 +75,7 @@ Stdout contains JSON replies and events only; diagnostics use stderr. Commands a
 
 - **LuaLaTeX** provides live glyphs. **XeLaTeX/pdfLaTeX** provide full PDF layouts and clean export only; their live glyph path is unavailable.
 - Live candidates include paragraphs, inline/display math, headings and captured environments. Balanced syntax, context guards and an old-source comparison probe remain mandatory. `eligibility: "allowlist"` (default) requires known/package-provided or configured macros. Opt-in `"probe"` permits unknown vocabulary to reach the same old-source probe. Neither mode proves arbitrary TeX macros pure.
-- Ambiguous mappings, failed probes, unsupported drawing and structural changes use the background path. A larger/shrinking unit has provisional vertical placement until the next layout. TikZ still uses PDF fallback; picture-cache scheduling is not yet ported.
+- Ambiguous mappings, failed probes, unsupported drawing and structural changes use the background path. A larger/shrinking unit has provisional vertical placement until the next layout. TikZ still uses PDF fallback. Unchanged standalone TikZ/circuitikz/PGF pictures can reuse bounded PDF page extracts; use `pictureCache: false` to disable this optimization.
 - PDF fallback is required for drawings or glyph/font formats your host cannot render. rtex-ts returns display lists; it does not include a viewer.
 - Background passes preload a standby LuaLaTeX preamble and automatically run BibTeX/Biber and index tools when their inputs change. Disable with `warmBackground: false`, `bibTool: "none"`, or `index: false`. This remains a partial adaptation of pinned upstream 0.0.7; [capability coverage](docs/upstream-parity.md) records the remaining gaps.
 - Interior paragraph edits reuse the span index; replies arrive on POSIX FIFOs or Windows named pipes without response polling. [Performance methodology](docs/performance.md) measures edit-to-event latency; upstream timings do not describe this package.
@@ -92,7 +92,7 @@ npm run test:tex
 npm pack --dry-run
 ```
 
-The real TeX suite requires `ctex` with Fandol fonts, `unicode-math`, and TikZ. It uses temporary projects and fails explicitly if LuaLaTeX is missing. Unit tests do not require TeX. Repository maintenance rules are in [AGENTS.md](AGENTS.md).
+The real TeX suite requires LuaLaTeX, XeLaTeX, pdfLaTeX, `ctex` with Fandol fonts, `unicode-math`, TikZ, BibTeX/Biber, `biblatex`, makeindex and `imakeidx`. It uses temporary projects and fails explicitly if LuaLaTeX is missing. Unit tests do not require TeX. Repository maintenance rules are in [AGENTS.md](AGENTS.md).
 
 ## License and provenance
 

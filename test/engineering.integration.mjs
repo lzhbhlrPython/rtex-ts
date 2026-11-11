@@ -37,7 +37,7 @@ Text $\attribute42=17 \frac{x}{y}$.
 Second paragraph.
 \end{document}`;
  const f=await fixture(t,source,{mathOwnerAttribute:42,fastBudgetMs:1000});const session=await f.open();await event(session,e=>e.event==='EngineState'&&e.state==='Ready');session.pauseBackground(true);const verification=await session.verify();assert.equal(verification.stale,false);assert.ok(verification.units.length);assert.ok(verification.units.every(unit=>unit.matched));const pending=event(session,e=>e.event==='ParagraphUpdate'&&e.status==='ok');source=source.replace('Text','Live');assert.equal(session.setDocument('chapters/main.tex',source).routed,'fast');const live=await pending;assert.ok(live.dl.math_owners?.glyphs.some(g=>g.owner===17),'binary live math owners');
- await new Promise(r=>setTimeout(r,1200));const version=session.versions().layout_version;const updated=event(session,e=>e.event==='LayoutUpdate'&&e.versions.source_revision===1);session.pauseBackground(false);const layout=await updated;assert.ok(layout.versions.layout_version>version);assert.equal(layout.convergence.state,'Converged');assert.ok(layout.pages_changed.some(p=>p.dl.math_owners?.glyphs.some(g=>g.owner===17)),'page math owners');
+ const standbyDeadline=Date.now()+30000;while(!session.stats().warmBackground&&Date.now()<standbyDeadline)await new Promise(r=>setTimeout(r,25));assert.equal(session.stats().warmBackground,true,'standby preamble is actually loaded');const version=session.versions().layout_version;const updated=event(session,e=>e.event==='LayoutUpdate'&&e.versions.source_revision===1);session.pauseBackground(false);const layout=await updated;assert.ok(layout.versions.layout_version>version);assert.equal(layout.convergence.state,'Converged');assert.ok(layout.pages_changed.some(p=>p.dl.math_owners?.glyphs.some(g=>g.owner===17)),'page math owners');
 });
 test('LuaLaTeX: Biber and imakeidx named index work in layout and plain export',{timeout:240000},async t=>{
  const source=String.raw`\documentclass{article}
@@ -51,4 +51,25 @@ Text \cite{example}.\index[names]{Example}
  const output=fs.readdirSync(session.buildDir).filter(name=>name.startsWith('background-')).map(name=>path.join(session.buildDir,name,'output')).find(dir=>fs.existsSync(path.join(dir,'main.bbl')));
  assert.match(fs.readFileSync(path.join(output,'main.bbl'),'utf8'),/\\entry\{example\}/);assert.match(fs.readFileSync(path.join(output,'names.ind'),'utf8'),/Example/);
  const result=await session.exportPdf(path.join(f.root,'biber.pdf'));assert.equal(result.converged,true);
+});
+test('LuaLaTeX: picture cache preserves pagination and invalidates changed drawing/setup',{timeout:180000},async t=>{
+ let source=String.raw`\documentclass{article}
+\usepackage{tikz}
+\begin{document}
+\definecolor{drawing}{rgb}{1,0,0}
+\begin{tikzpicture}
+\draw[drawing,line width=2pt] (0,0) rectangle (3,2);
+\node at (1,1) {Picture};
+\end{tikzpicture}
+
+Ordinary paragraph after the drawing.
+\newpage Second page.
+\begin{tikzpicture}
+\draw[green] (0,0) circle (1);
+\end{tikzpicture}
+\end{document}`;
+ const f=await fixture(t,source,{fastBudgetMs:1000});const session=await f.open();let layout=await event(session,e=>e.event==='LayoutUpdate');assert.equal(layout.convergence.state,'Converged');assert.equal(layout.pages_total,2);assert.ok(layout.pdf_fallback);assert.equal(session.stats().pictureCache.entries,2);assert.equal(session.stats().pictureCache.manifestHits,2);
+ await event(session,e=>e.event==='EngineState'&&e.state==='Ready');session.pauseBackground(true);source=source.replace('Ordinary paragraph','Updated ordinary paragraph');session.setDocument('chapters/main.tex',source);let pending=event(session,e=>e.event==='LayoutUpdate'&&e.versions.source_revision===1);session.pauseBackground(false);layout=await pending;assert.equal(layout.pages_total,2);assert.equal(session.stats().pictureCache.manifestHits,2);
+ source=source.replace('{1,0,0}','{0,0,1}').replace('(3,2)','(4,2)');pending=event(session,e=>e.event==='LayoutUpdate'&&e.versions.source_revision===2);session.setDocument('chapters/main.tex',source);layout=await pending;assert.equal(layout.convergence.state,'Converged');assert.equal(layout.pages_total,2);assert.ok(session.stats().pictureCache.entries>=4);
+ const result=await session.exportPdf(path.join(f.root,'uncached.pdf'));assert.equal(result.converged,true);
 });

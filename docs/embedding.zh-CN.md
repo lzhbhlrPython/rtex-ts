@@ -34,6 +34,8 @@ session.setDocument('main.tex', source.replace('Hello', 'Hello world'));
 
 0.1.7 新增配置：`engine`（`lualatex`、`xelatex`、`pdflatex`）、`texExecutable`、`eligibility`（默认 `allowlist`，可选 `probe`）、`trustedMacros`、`unitEnvs`、`mathOwnerAttribute`（0..65535）、`bibTool`（默认 `auto`，可选 `bibtex`、`biber`、`none`）、`index`（true）、`warmBackground`（LuaLaTeX 默认 true）、`fastOnStaleContext`。`auxExecutables` 可指定 `bibtex`、`biber` 和白名单索引程序路径，均使用参数数组及受控工作目录。宏包/宏推断保持保守；显式信任宏是宿主策略，不是沙箱。
 
+0.1.8 起，LuaLaTeX 默认启用 `pictureCache`（CLI 用 `--no-picture-cache` 关闭）。独立 TikZ/circuitikz/PGF 图片在源码、前置命令/设置哈希和捕获的字体/颜色/宽度一致时复用会话 PDF 选页缓存。引用、计数器、外部数据、remember/overlay 图片、键歧义及不安全/间接副作用不使用缓存。跳过边界不匹配会隔离该键并强制再排版；最后一轮仍不匹配时保留旧版面。缓存上限 256 项/64 MiB，四次未使用轮次后过期。LuaTeX 选页提取不可用时回退为有容量限制的整份 PDF 复制。这是渲染优化，不能证明任意宏纯净。缓存页仍需 PDF 回退；`exportPdf()` 始终不使用此缓存。`stats().pictureCache.manifestHits` 是提供给引擎的清单候选数，运行时状态检查仍可能拒绝。
+
 XeLaTeX/pdfLaTeX 返回仅 PDF 的 `LayoutUpdate`：`pages_changed` 和 `eligible_paragraphs` 为空，`pdf_fallback` 指向 PDF，不启动实时引擎，也不发实时引擎 `Ready`。这两种模式应等待 `LayoutUpdate`。
 - `setDocument(path, text)` 计算一次最小修改，立即返回 `EditResult`。
 - `applyEdit(path, { start, end, text })` 替换 `[start, end)` 范围的 **UTF-8 字节**；切开字符、越界或倒置范围都会被拒绝。

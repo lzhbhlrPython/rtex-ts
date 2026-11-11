@@ -12,6 +12,9 @@ The background path copies an immutable snapshot, adds the unmodified upstream c
 
 The live path keeps a second LuaLaTeX process with the preamble loaded. It installs the captured context and first typesets the old paragraph, comparing positioned glyphs and rules with the background result. A matching probe permits typesetting the new paragraph. Errors, leaks, unsupported drawing, inserts, ambiguous mappings and exceeded latency budgets retain the background path. The comparison is conservative validation, not a proof that arbitrary TeX macros are pure.
 
+
+The Lua background path can substitute unchanged standalone pictures using a session-owned page-extract cache. The scanner follows literal inputs in read order, hashes preceding commands/setup and rejects counter/reference/file/unsafe dependencies. Capture checks font/color/width and the skipped end line; a mismatch is quarantined and cannot be installed as the final layout. LuaTeX extracts required pages without a runtime npm dependency; cache capacity and four-pass retention are bounded. Cached drawing display lists still require the matching PDF, and clean export bypasses this optimization.
+
 ## Modules
 
 | Module | Responsibility |

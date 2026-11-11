@@ -13,7 +13,7 @@ const option = (name: string): string | undefined => { const index = args.indexO
 function configuration(): SessionConfig {
   const projectRoot = option('project'); if (!projectRoot) throw new Error('--project is required');
   const attribute = option('math-owner-attribute');
-  return { projectRoot, mainFile: option('main') || 'main.tex', buildDir: option('build'), engine: (option('engine') || 'lualatex') as SessionConfig['engine'], texExecutable: option('tex') || option('lualatex'), eligibility: option('eligibility') as SessionConfig['eligibility'], trustedMacros: option('trusted-macros')?.split(','), unitEnvs: option('unit-envs')?.split(','), bibTool: option('bib-tool') as SessionConfig['bibTool'], mathOwnerAttribute: attribute === undefined ? undefined : Number(attribute), warmBackground: !args.includes('--no-warm-background'), index: !args.includes('--no-index') };
+  return { projectRoot, mainFile: option('main') || 'main.tex', buildDir: option('build'), engine: (option('engine') || 'lualatex') as SessionConfig['engine'], texExecutable: option('tex') || option('lualatex'), eligibility: option('eligibility') as SessionConfig['eligibility'], trustedMacros: option('trusted-macros')?.split(','), unitEnvs: option('unit-envs')?.split(','), bibTool: option('bib-tool') as SessionConfig['bibTool'], mathOwnerAttribute: attribute === undefined ? undefined : Number(attribute), warmBackground: !args.includes('--no-warm-background'), pictureCache: !args.includes('--no-picture-cache'), index: !args.includes('--no-index') };
 }
 async function ready(session: Session, pdfOnly = false): Promise<void> {
   return new Promise((resolve,reject) => {

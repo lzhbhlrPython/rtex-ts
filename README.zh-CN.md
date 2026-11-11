@@ -75,7 +75,7 @@ stdout 只包含 JSON 回复和事件，诊断写入 stderr。完整命令及与
 
 - **LuaLaTeX** 提供实时字形；**XeLaTeX/pdfLaTeX** 提供完整 PDF 布局与普通导出，不提供实时字形。
 - 实时候选包含段落、行内/独立数学、标题与已捕获环境，必须通过平衡语法、上下文和旧源码探针核验。默认 `eligibility: "allowlist"` 要求已知、宏包提供或显式配置的命令；可选 `"probe"` 允许未知词汇进入同样的旧源码探针。两种模式都不证明任意 TeX 宏无副作用。
-- 映射不明确、探针失败、不支持的绘制和结构变化进入后台；单元高度改变后的摆放在后台收敛前属于暂定结果。TikZ 仍使用 PDF 回退，图片缓存调度尚未移植。
+- 映射不明确、探针失败、不支持的绘制和结构变化进入后台；单元高度改变后的摆放在后台收敛前属于暂定结果。TikZ 仍使用 PDF 回退；未变化的独立 TikZ/circuitikz/PGF 图片可复用有容量上限的 PDF 选页缓存，用 `pictureCache: false` 可关闭。
 - 图稿或宿主无法绘制的字体格式需要 PDF 回退。本包返回显示列表，不包含查看器。
 - 后台预加载一个常驻 LuaLaTeX 导言区，并在输入变化时调用 BibTeX/Biber 和索引工具。可用 `warmBackground: false`、`bibTool: "none"`、`index: false` 关闭。当前仍为固定 0.0.7 的部分移植，[能力对照](docs/upstream-parity.zh-CN.md) 记录剩余差距。
 - 段落内部修改复用分段索引，响应通过 POSIX FIFO 或 Windows 命名管道通知，不再轮询响应文件。见[性能测量方法](docs/performance.zh-CN.md)；上游数据不是本包实测数据。
@@ -92,7 +92,7 @@ npm run test:tex
 npm pack --dry-run
 ```
 
-真实 TeX 测试需要带 Fandol 字体的 `ctex`、`unicode-math` 和 TikZ，使用临时工程，缺少 LuaLaTeX 时明确失败。纯单元测试不依赖 TeX。协作规则见 [AGENTS.md](AGENTS.md)。
+真实 TeX 测试需要 LuaLaTeX、XeLaTeX、pdfLaTeX、带 Fandol 字体的 `ctex`、`unicode-math`、TikZ、BibTeX/Biber、`biblatex`、makeindex 和 `imakeidx`，使用临时工程，缺少 LuaLaTeX 时明确失败。纯单元测试不依赖 TeX。协作规则见 [AGENTS.md](AGENTS.md)。
 
 ## 许可与来源
 

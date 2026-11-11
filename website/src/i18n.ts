@@ -15,7 +15,7 @@ export const text = {
     measure: "查看测量方法",
     install: "安装到你的工程",
     heroNote: "300 页合成文档 · 热引擎 · 编辑到字形事件 p50",
-    sampleNote: "Apple M1 Pro / macOS · 50 次修改 · 不含宿主绘制",
+    sampleNote: "0.1.7 · Apple M1 Pro / macOS · 50 次修改 · 不含宿主绘制",
     latency: "低延迟，从每次修改开始。",
     latencyBody:
       "局部段落修改复用分段索引与上下文；常驻引擎无需重复加载导言区。完整后台排版随后校正分页和引用。",
@@ -26,6 +26,10 @@ export const text = {
     sync: "同步编辑 p50",
     benchNote:
       "合成英文 article，单字符修改，首次探针不计。复杂环境、冷启动和完整排版有不同开销。",
+    cacheTitle: "图片缓存 · 完整后台布局中位数",
+    cacheOff: "关闭",
+    cacheOn: "开启",
+    cacheNote: "0.1.8 本机初步对照：13 页、12 张 TikZ 图，每组 20 次修改。冷启动未改善；不含宿主绘制。",
     flowTitle: "即时字形与完整页面，共用一份源码。",
     flowBody:
       "未保存修改留在你的缓冲区。可靠的局部结果立即返回；复杂语法与无法确认的结果交给后台。",
@@ -76,7 +80,7 @@ export const text = {
     measure: "Read the methodology",
     install: "Add it to your project",
     heroNote: "300-page synthetic document · warm engine · edit-to-event p50",
-    sampleNote: "Apple M1 Pro / macOS · 50 edits · host drawing excluded",
+    sampleNote: "0.1.7 · Apple M1 Pro / macOS · 50 edits · host drawing excluded",
     latency: "Low latency starts with every edit.",
     latencyBody:
       "Interior paragraph edits reuse the span index and captured context. A persistent engine keeps the preamble loaded. Background layout then corrects pagination and references.",
@@ -87,6 +91,10 @@ export const text = {
     sync: "Synchronous edit p50",
     benchNote:
       "Synthetic English article, single-character edits, initial probe excluded. Complex environments, cold start and full layout have different costs.",
+    cacheTitle: "Picture cache · median full background layout",
+    cacheOff: "Off",
+    cacheOn: "On",
+    cacheNote: "Preliminary local 0.1.8 comparison: 13 pages, 12 TikZ pictures, 20 edits per mode. Cold start did not improve; host rendering excluded.",
     flowTitle: "Immediate glyphs. Complete pages. One source.",
     flowBody:
       "Your buffers retain unsaved edits. Validated local results arrive immediately; complex syntax and uncertain results wait for background layout.",

@@ -111,3 +111,13 @@ test('a leaking old-source probe closes the engine before any new-source compile
 test('closing while an asynchronous snapshot is pending never spawns TeX',async t=>{
  const {session}=await fixture(t);session.engine=undefined;let release;const snapshot=session.snapshot.bind(session);session.snapshot=async(...args)=>{await new Promise(r=>release=r);return snapshot(...args);};let runs=0;session.processes.run=async()=>{runs++;return{code:0,log:''};};const pending=session.background();session.close();release();await pending;assert.equal(runs,0);assert.deepEqual(session.processIds(),[]);
 });
+
+test('optional picture-cache failure disables reuse and still installs an ordinary valid layout',async t=>{
+ const {session}=await fixture(t),events=[];session.subscribe(e=>events.push(e));session.pictures={async manifest(){throw Error('simulated cache I/O failure');}};session.processes.run=async(_exe,args)=>artifacts(args);await session.background();assert.equal(session.versions().layout_version,1);assert.equal(session.stats().pictureCache,null);assert.ok(events.some(e=>e.event==='Diagnostics'&&e.source==='picture-cache'));
+});
+test('a final cached-picture boundary mismatch cannot install an incorrect layout',async t=>{
+ const {session}=await fixture(t);session.files.get('main.tex').text='\\documentclass{article}\n\\begin{document}\n\\begin{tikzpicture}\n\\draw (0,0)--(1,1);\n\\end{tikzpicture}\n\\end{document}';let quarantined=false;session.pictures={async manifest(){},async absorb(_pics,_recorded,mismatches){quarantined=mismatches.includes('main.tex:3');},stats(){return{entries:0,manifestHits:0};}};session.processes.run=async(_exe,args)=>{const result=artifacts(args),output=args.find(a=>a.startsWith('--output-directory=')).slice('--output-directory='.length);fs.writeFileSync(path.join(output,'main.rtex.json'),JSON.stringify({pages:1,units:[],paragraphs:[],counters:[],pic_mismatch:['main.tex:3']}));return result;};await session.background();assert.equal(quarantined,true);assert.equal(session.versions().layout_version,0);
+});
+test('a failed cached TeX pass retries without cached pictures instead of repeating the failure',async t=>{
+ const {session}=await fixture(t);session.config.maxPasses=2;let runs=0;session.pictures={async manifest(){},stats(){return{entries:1,manifestHits:1};}};session.processes.run=async(_exe,args)=>artifacts(args,{code:runs++===0?1:0});await session.background();assert.equal(runs,2);assert.equal(session.stats().pictureCache,null);assert.equal(session.versions().layout_version,1);
+});

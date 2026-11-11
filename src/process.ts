@@ -51,7 +51,9 @@ export function killTree(child: ChildProcess): void {
 }
 export class Processes {
   readonly children = new Set<ChildProcess>();
+  private closed = false;
   spawn(executable: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): ChildProcess {
+    if (this.closed) throw new Error('Process owner is closed');
     const child = spawn(executable, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, detached: process.platform !== 'win32' });
     child.stdin?.on('error', () => {}); // Early executable/timeout failure may close stdin before its writer.
     this.children.add(child); child.once('close', () => this.children.delete(child));
@@ -67,5 +69,5 @@ export class Processes {
       child.once('close', (code, signal) => { clearTimeout(timer); if (timedOut || signal) reject(new Error(`Process interrupted (${timedOut ? 'timeout' : signal})`)); else resolve({ code: code ?? 1, log }); });
     });
   }
-  close(): void { for (const child of this.children) killTree(child); }
+  close(): void { this.closed = true; for (const child of this.children) killTree(child); }
 }
