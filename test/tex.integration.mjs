@@ -8,7 +8,7 @@ if(spawnSync(lua,['--version'],{encoding:'utf8'}).status!==0)throw new Error('Re
 function waitFor(session,predicate,timeout=90000){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{off();reject(new Error('Timed out waiting for TeX event'))},timeout);const off=session.subscribe(event=>{if(event.event==='EngineState'&&event.state==='Failed'){clearTimeout(timer);off();reject(new Error(event.reason));}else if(predicate(event)){clearTimeout(timer);off();resolve(event)}})})}
 
 test('real LuaLaTeX: CJK/math live edits, multi-file buffers, TikZ fallback, clean export and close', {timeout:180000},async t=>{
- const root=fs.mkdtempSync(path.join((process.env.RUNNER_TEMP || os.tmpdir()),'rtex-ts-real-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));fs.mkdirSync(path.join(root,'chapters'));
+ const root=fs.mkdtempSync(path.join((process.env.RUNNER_TEMP || os.tmpdir()),'rtex-ts-real-'));let session;t.after(async()=>{session?.close();const deadline=Date.now()+5000;while(session?.processIds().length&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));assert.deepEqual(session?.processIds()||[],[],'close must terminate all owned processes');await fs.promises.rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:100});});fs.mkdirSync(path.join(root,'chapters'));
  let main=String.raw`\documentclass[fontset=fandol]{ctexart}
 \usepackage{unicode-math}
 \usepackage{tikz}
@@ -23,7 +23,7 @@ test('real LuaLaTeX: CJK/math live edits, multi-file buffers, TikZ fallback, cle
 \end{document}
 `;
  let intro='Second file paragraph. 子文件内容。\n';fs.writeFileSync(path.join(root,'main.tex'),main);fs.writeFileSync(path.join(root,'chapters/intro.tex'),intro);
- const session=await Session.open({projectRoot:root,mainFile:'main.tex',lualatex:lua,fastBudgetMs:500,debounceMs:500});t.after(()=>session.close());
+ session=await Session.open({projectRoot:root,mainFile:'main.tex',lualatex:lua,fastBudgetMs:500,debounceMs:500});
  const seen=[];session.subscribe(event=>{seen.push(event);if(event.event==='EngineState'&&event.state==='Failed')console.error('TeX failure:',event.reason)});
  await waitFor(session,event=>event.event==='EngineState'&&event.state==='Ready');
  const layout=seen.find(event=>event.event==='LayoutUpdate');assert.ok(layout.pages_total>=1);assert.ok(fs.existsSync(layout.pdf_path));

@@ -24,7 +24,7 @@ The live path keeps a second LuaLaTeX process with the preamble loaded. It insta
 | `cli.ts` | JSON-lines adapter with bounded output/backpressure |
 | `vendor/realtime-tex/tex/` | Unmodified upstream Lua/TeX runtime and its tests/experiments |
 
-Requests to Lua are JSON lines on stdin. Responses use the upstream length-prefixed format in an ordinary file, polled only while waiting. JSON escapes preserve UTF-8, CRLF and control characters across Windows text-mode stdin. This transport trades some latency for avoiding FIFOs, native modules or a Rust dependency. A response stream over 64 MiB triggers engine recovery on the next request; individual frames are capped at 32 MiB.
+Requests to Lua are JSON lines on stdin. Responses use upstream's length-prefixed binary frames through a POSIX FIFO or Windows named pipe, read with Node streams. This avoids response-file polling and its per-request delay. JSON escapes preserve UTF-8, CRLF and control characters across Windows text-mode stdin. Individual response frames are capped at 32 MiB, and unexpected queued replies trigger recovery.
 
 ## Ordering and recovery
 

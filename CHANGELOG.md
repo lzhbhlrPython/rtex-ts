@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5
+
+- Wait for owned TeX processes to exit before removing real-integration fixtures. Windows cleanup asserts the process list is empty and retries transient file locks asynchronously.
+- Correct architecture documentation for the streaming response transport.
+
 ## 0.1.4
 
 - Normalize the Windows project-root environment before Lua inserts it into TeX input paths; fixes CTeX/fontspec parsing of backslashes.
