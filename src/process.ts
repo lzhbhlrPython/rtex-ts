@@ -19,7 +19,7 @@ export function findLuaLaTeX(requested?: string): string {
 export function environment(root: string, mainFile: string, cache: string): NodeJS.ProcessEnv {
   mkdirSync(cache, { recursive: true });
   const sep = process.platform === 'win32' ? ';' : ':';
-  return { ...process.env, RTEX_REQ: '', RTEX_PROJECT_DIR: root, RTEX_MAIN_DIR: path.dirname(mainFile) === '.' ? undefined : texPath(path.dirname(mainFile)), TEXMFCACHE: cache,
+  return { ...process.env, RTEX_REQ: '', RTEX_PROJECT_DIR: texPath(root), RTEX_MAIN_DIR: path.dirname(mainFile) === '.' ? undefined : texPath(path.dirname(mainFile)), TEXMFCACHE: cache,
     TEXINPUTS: `${texPath(path.join(SUPPORT_DIR, 'latex'))}//${sep}${process.env.TEXINPUTS || ''}`,
     LUAINPUTS: `${texPath(SUPPORT_DIR)}//${sep}${process.env.LUAINPUTS || ''}`,
     openout_any: 'a', MIKTEX_ALLOWUNSAFEOUTPUTFILES: '1', max_print_line: '10000' };

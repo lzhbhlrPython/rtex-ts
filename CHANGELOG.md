@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4
+
+- Normalize the Windows project-root environment before Lua inserts it into TeX input paths; fixes CTeX/fontspec parsing of backslashes.
+- Save the installed TeX Live CI cache before integration tests, so a later failure does not force a fresh distribution install.
+
 ## 0.1.3
 
 - Add a standalone React + Ant Design product/documentation site with English/Simplified Chinese routes, local themes, search, locale-aware measurements and repository Markdown.

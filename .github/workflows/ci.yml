@@ -36,7 +36,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
+        id: tex-cache
         with:
           path: build/texlive
           key: texlive-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/install-texlive.sh', 'scripts/texlive.profile') }}
@@ -50,5 +51,10 @@ jobs:
           else
             echo "$RTEX_TEXLIVE_BIN" >> "$GITHUB_PATH"
           fi
+      - uses: actions/cache/save@v6
+        if: steps.tex-cache.outputs.cache-hit != 'true'
+        with:
+          path: build/texlive
+          key: ${{ steps.tex-cache.outputs.cache-primary-key }}
       - run: npm ci
       - run: npm run test:tex
