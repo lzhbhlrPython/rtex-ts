@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { applyByteEdit, maskTeX, minimalEdit, splitPreamble, splitSpans } from './document.js';
+import { applyByteEdit, editSpans, maskTeX, minimalEdit, splitPreamble, splitSpans } from './document.js';
 import { LiveEngine } from './engine.js';
 import { isExact } from './display-list.js';
 import { environment, findLuaLaTeX, INPUT_PATH_HOOK, inside, Processes, sourcePath, texPath } from './process.js';
@@ -126,17 +126,20 @@ export class Session extends EventEmitter {
     if (total - Buffer.byteLength(old.text) + Buffer.byteLength(text) > 64 * 1024 * 1024) throw new Error('Project buffer limit exceeded');
     const edit = minimalEdit(old.text, text);
     if (!edit) return { edit_id: this.editId, source_revision: this.revision, routed: 'background', reasons: ['unchanged'] };
-    const spans = splitSpans(text, key === this.mainFile), delta = Buffer.byteLength(text) - Buffer.byteLength(old.text);
+    const spans = editSpans(old.text, text, old.spans, edit, key === this.mainFile), delta = Buffer.byteLength(text) - Buffer.byteLength(old.text);
     const affected = old.spans.find(span => edit.start >= span.start && edit.end <= span.end);
+    const oldByStart = new Map(old.spans.map(span => [span.start, span]));
     for (const next of spans) {
-      const previous = old.spans.find(span => span.start === next.start && span.end === next.end && span.text === next.text)
-        || old.spans.find(span => span.start >= edit.end && span.start + delta === next.start && span.end + delta === next.end && span.text === next.text);
+      const unchanged = oldByStart.get(next.start), shifted = oldByStart.get(next.start - delta);
+      const previous = unchanged?.end === next.end && unchanged.text === next.text ? unchanged
+        : shifted && shifted.start >= edit.end && shifted.end + delta === next.end && shifted.text === next.text ? shifted : undefined;
       if (previous) next.id = previous.id;
     }
     const replacement = affected && spans.find(span => span.start === affected.start && span.end === affected.end + delta);
     if (replacement) replacement.id = affected!.id;
     this.files.set(key, { text, spans }); this.revision++; this.editId++;
-    for (const span of old.spans) if (!spans.some(next => next.id === span.id) && this.contexts.has(span.id)) {
+    const retainedIds = new Set(spans.map(span => span.id));
+    for (const span of old.spans) if (!retainedIds.has(span.id) && this.contexts.has(span.id)) {
       const context = this.contexts.get(span.id)!;
       this.event({ event: 'ParagraphUpdate', versions: this.versions(), par_id: span.id, edit_id: this.editId, status: 'removed', reasons: [], fragments: fragments(context.unit.placements), pagination_stale: true, context_stale: true, dl: context.rows[0]?.dl || emptyDrawing(), diagnostics: [], timing: { total_us: 0, tex_us: 0, traversal_us: 0 } });
       this.contexts.delete(span.id);
@@ -170,7 +173,7 @@ export class Session extends EventEmitter {
             context.verified = true;
           }
           const result = await engine.request({ op: 'compile', req: task.editId, ctx: id, source: task.span.text });
-          if (this.closed || engine !== this.engine || generation !== this.generation || this.contexts.get(id) !== context || this.files.get(task.file)?.spans.find(span => span.id === id)?.text !== task.span.text) continue;
+          if (this.closed || engine !== this.engine || generation !== this.generation || this.contexts.get(id) !== context || this.files.get(task.file)?.spans.find(span => span.id === id) !== task.span) continue;
           if (result.status !== 'ok' || !result.dl || (result.leaks || []).length || !isExact(result.dl) || result.dl.inserts > 0 || performance.now() - started > this.config.fastBudgetMs) {
             this.event({ event: 'BackgroundScheduled', par_id: id, edit_id: task.editId, reasons: ['live result needs full layout'] }); continue;
           }
@@ -218,8 +221,10 @@ export class Session extends EventEmitter {
       // \include writes aux files below the output directory as well.
       for (const file of files.keys()) mkdirSync(path.join(output, path.dirname(file)), { recursive: true });
       let signature = '', passes = 0, code = 0, log = '', converged = false;
-      const args = ['-interaction=nonstopmode', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), INPUT_PATH_HOOK + '\\RequirePackage{rtex-capture}\\input{' + texPath(this.mainFile) + '}'];
-      const env = { ...environment(snapshot, this.mainFile, path.join(this.buildDir, 'font-cache')), RTEX_CAPTURE_DIR: output };
+      const driver = path.join(dir, 'rtex-background.tex');
+      writeFileSync(driver, INPUT_PATH_HOOK + '\\RequirePackage{rtex-capture}\\input{' + texPath(this.mainFile) + '}');
+      const args = ['-interaction=nonstopmode', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), texPath(driver)];
+      const env = { ...environment(snapshot, this.mainFile, path.join(this.buildDir, 'font-cache')), RTEX_CAPTURE_DIR: texPath(output) };
       for (; passes < this.config.maxPasses; passes++) {
         const result = await this.processes.run(this.executable, args, snapshot, env, this.config.passTimeoutMs); code = result.code; log = result.log;
         if (this.closed) return;
@@ -229,6 +234,7 @@ export class Session extends EventEmitter {
         // Bibliography/index processes are deliberately not spawned implicitly in v0.1.
         if (code !== 0) { passes++; break; }
       }
+      if (code !== 0 || !existsSync(path.join(output, job + '.rtex.json'))) throw new Error('Background capture failed: ' + log.slice(-6000));
       const capture = JSON.parse(readFileSync(path.join(output, job + '.rtex.json'), 'utf8')) as Capture;
       const errors = parseErrors(log);
       this.event({ event: 'Diagnostics', source: 'background', items: errors });
@@ -324,8 +330,10 @@ export class Session extends EventEmitter {
     this.snapshot(source, new Map(this.files)); mkdirSync(output, { recursive: true });
     for (const file of this.files.keys()) mkdirSync(path.join(output, path.dirname(file)), { recursive: true });
     const job = path.basename(this.mainFile, path.extname(this.mainFile)); let signature = '', converged = false, passes = 0;
+    const driver = path.join(dir, 'rtex-export.tex');
+    writeFileSync(driver, INPUT_PATH_HOOK + '\\input{' + texPath(this.mainFile) + '}');
     for (; passes < this.config.maxPasses; passes++) {
-      const result = await this.processes.run(this.executable, ['-interaction=nonstopmode', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), INPUT_PATH_HOOK + '\\input{' + texPath(this.mainFile) + '}'], source, environment(source, this.mainFile, path.join(this.buildDir, 'font-cache')), this.config.passTimeoutMs);
+      const result = await this.processes.run(this.executable, ['-interaction=nonstopmode', '-file-line-error', '--jobname=' + job, '--output-directory=' + texPath(output), texPath(driver)], source, environment(source, this.mainFile, path.join(this.buildDir, 'font-cache')), this.config.passTimeoutMs);
       if (this.closed || result.code) throw new Error('PDF export failed: ' + result.log.slice(-2000));
       const next = auxiliarySignature(output);
       if (signature === next && !/Rerun to get|Please \(re\)run|There were undefined references|No file .+\.(?:bbl|ind)\./.test(result.log)) { converged = revision === this.revision; passes++; break; } signature = next;

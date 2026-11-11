@@ -12,7 +12,8 @@ The TypeScript host was written by closely studying the upstream implementation.
 | --- | --- | --- |
 | `src/document.ts` | `crates/rtex-core/src/document.rs` | Reimplements byte edits, span identity and conservative paragraph segmentation; much narrower syntax support |
 | `src/display-list.ts` | `crates/rtex-dl/src/binary.rs`, `tex/rtex-dl-bin.lua` | Ports revision 1 binary decoding and the drawing model |
-| `src/engine.ts` | `crates/rtex-core/src/engine.rs`, `transport.rs` | Adapts the persistent TeX driver, context and framed response handling; replaces platform pipes with a response file |
+| `src/engine.ts` | `crates/rtex-core/src/engine.rs`, `transport.rs` | Adapts the persistent TeX driver, context and framed response handling; adapts POSIX FIFOs and Windows named pipes through Node streams |
+| `src/transport.ts` | `crates/rtex-core/src/transport.rs` | Adapts bounded framed FIFO / Windows named-pipe responses to Node streams |
 | `src/process.ts` | `crates/rtex-core/src/texlive.rs` | Adapts support lookup, TeX environment, input-path hook and process ownership |
 | `src/session.ts` | `session/`, `layout.rs`, `capture.rs`, `background.rs` | Reimplements the two-path session, capture contexts, paragraph probes, placements, revisions and snapshot passes |
 | `vendor/realtime-tex/tex/` | upstream `tex/` | Unmodified copied source, retaining upstream authorship |
@@ -31,7 +32,7 @@ Version 0.1 focuses on ordinary paragraphs and inline mathematics. It probes the
 
 The TypeScript API uses Node event listeners, camelCase configuration and explicit UTF-8 edits. Its JSON-lines API follows familiar upstream command/event names, but does not implement the entire upstream API, C ABI, math ownership interface, performance profile or compatibility guarantees. TeXPro is a separate host, not an upstream dependency.
 
-The response-file transport avoids a platform-specific native module. It polls only while waiting for a reply, with a 2 ms interval. It is bounded and restarts on failure; this choice adds latency and is not equivalent to upstream's FIFO/named-pipe implementation.
+The response transport follows upstream's framed FIFO / Windows named-pipe design through Node streams, without a native npm module. JSON stdin requests remain escaped on Windows; the response stream is binary. The adaptation bounds frames and pending replies and aborts waiting readers during cleanup.
 
 Report issues to the rtex-ts repository. Please reproduce issues with upstream rtex before reporting them upstream as upstream failures.
 

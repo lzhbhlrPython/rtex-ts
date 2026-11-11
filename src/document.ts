@@ -61,11 +61,17 @@ export function splitSpans(text: string, main = false): Span[] {
   }
   push(bounds.bodyEnd);
   if (bounds.bodyEnd < text.length) regions.push({ start: bounds.bodyEnd, end: text.length, kind: 'trailer' });
+  let cursor = 0, byteOffset = 0, lineOffset = 1;
+  const newlines = (value: string) => { let count = 0; for (let i = 0; i < value.length; i++) if (value.charCodeAt(i) === 10) count++; return count; };
   return regions.map(region => {
+    const gap = text.slice(cursor, region.start); byteOffset += Buffer.byteLength(gap); lineOffset += newlines(gap);
     const raw = text.slice(region.start, region.end), clean = maskTeX(raw);
-    const firstContent = region.start + (raw.search(/\S/) < 0 ? 0 : raw.search(/\S/));
+    const content = raw.search(/\S/), trimmed = raw.trimEnd();
+    const start = byteOffset, end = start + Buffer.byteLength(raw);
+    const firstLine = lineOffset + newlines(raw.slice(0, Math.max(0, content))), lastLine = lineOffset + newlines(trimmed);
+    cursor = region.end; byteOffset = end; lineOffset += newlines(raw);
     const unsupported = region.kind === 'paragraph' && (/\\(?:begin|end|section|subsection|chapter|paragraph|newcommand|renewcommand|def|gdef|setlength|setcounter|input|include|directlua|verb)\b/.test(clean) || depth !== 0 || env !== 0 || /\\begin\{(?:verbatim|lstlisting|minted)/.test(raw));
-    return { id: nextId++, start: Buffer.byteLength(text.slice(0, region.start)), end: Buffer.byteLength(text.slice(0, region.end)), firstLine: text.slice(0, firstContent).split('\n').length, lastLine: text.slice(0, region.end).trimEnd().split('\n').length, text: raw.trimEnd(), kind: unsupported ? 'unsupported' : region.kind };
+    return { id: nextId++, start, end, firstLine, lastLine, text: trimmed, kind: unsupported ? 'unsupported' : region.kind };
   });
 }
 export function minimalEdit(before: string, after: string): ByteEdit | null {
@@ -76,4 +82,27 @@ export function minimalEdit(before: string, after: string): ByteEdit | null {
   while (end > start && next > start && before[end - 1] === after[next - 1]) { end--; next--; }
   if (end < before.length && /[\uDC00-\uDFFF]/.test(before[end])) { end++; next++; }
   return { start: Buffer.byteLength(before.slice(0, start)), end: Buffer.byteLength(before.slice(0, end)), text: after.slice(start, next) };
+}
+/** Re-segment an interior paragraph edit, retaining the rest of the span index.
+ * Edits to whitespace boundaries or changes in paragraph structure use the full scanner.
+ */
+export function editSpans(before: string, after: string, spans: Span[], edit: ByteEdit, main: boolean): Span[] {
+  const span = spans.find(s => s.kind === 'paragraph' && edit.start >= s.start && edit.end <= s.end);
+  if (span) {
+    const bytes = Buffer.from(before), raw = bytes.subarray(span.start, span.end).toString('utf8');
+    const leading = raw.length - raw.trimStart().length;
+    const first = span.start + Buffer.byteLength(raw.slice(0, leading)), last = span.start + Buffer.byteLength(raw.trimEnd());
+    if (edit.start >= first && edit.end <= last) {
+      const next = applyByteEdit(raw, { ...edit, start: edit.start - span.start, end: edit.end - span.start });
+      const local = splitSpans(next);
+      if (local.length === 1 && local[0].kind === 'paragraph' && local[0].start === 0 && local[0].end === Buffer.byteLength(next)) {
+        const lines = (value: string) => { let n = 0; for (let i = 0; i < value.length; i++) if (value.charCodeAt(i) === 10) n++; return n; };
+        const delta = Buffer.byteLength(edit.text) - (edit.end - edit.start), lineDelta = lines(next) - lines(raw);
+        const base = span.firstLine - 1 - lines(raw.slice(0, leading));
+        const replacement = { ...local[0], id: span.id, start: span.start, end: span.end + delta, firstLine: base + local[0].firstLine, lastLine: base + local[0].lastLine };
+        return spans.map(s => s === span ? replacement : s.start >= span.end ? { ...s, start: s.start + delta, end: s.end + delta, firstLine: s.firstLine + lineDelta, lastLine: s.lastLine + lineDelta } : s);
+      }
+    }
+  }
+  return splitSpans(after, main);
 }

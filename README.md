@@ -78,7 +78,7 @@ Stdout contains JSON replies and events only; diagnostics use stderr. Commands a
 - Headings, block environments (including tables and TikZ), custom macros and structural changes currently use the background path. A larger/shrinking paragraph has provisional vertical placement until the next layout.
 - PDF fallback is required for drawings or glyph/font formats your host cannot render. rtex-ts returns display lists; it does not include a viewer.
 - Bibliography/index tools, warm background engines, picture-cache scheduling and upstream's broader eligibility logic have not been ported. Missing bibliography/index output must not be treated as converged.
-- The response-file transport polls while waiting, adding overhead. Upstream millisecond benchmarks do not describe rtex-ts performance.
+- Interior paragraph edits reuse the span index; replies arrive on POSIX FIFOs or Windows named pipes without response polling. [Performance methodology](docs/performance.md) measures edit-to-event latency; upstream timings do not describe this package.
 - Linux/macOS/Windows use Node APIs and platform-aware process cleanup. A CI matrix is provided; see [compatibility](docs/compatibility.md) for what was actually exercised.
 - LuaLaTeX runs document code with your permissions. This library is **not a sandbox**; a host opening untrusted projects must supply OS-level isolation.
 

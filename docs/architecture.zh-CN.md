@@ -24,7 +24,7 @@
 | `cli.ts` | JSON 行协议、有界输出与背压 |
 | `vendor/realtime-tex/tex/` | 未修改的上游 Lua/TeX 运行时及其测试和实验 |
 
-发给 Lua 的请求使用 stdin JSON 行。响应沿用上游长度前缀帧，通过普通文件读取，仅在等待时轮询。JSON 转义避免 Windows 文本模式 stdin 改写 UTF-8、CRLF 和控制字符。这个传输方案用少量延迟换取不依赖 FIFO、原生模块或 Rust。响应累计超过 64 MiB 后，下次请求触发引擎恢复；单帧上限 32 MiB。
+发给 Lua 的请求使用 stdin JSON 行。响应沿用上游长度前缀帧，通过普通文件读取，仅在等待时读取。JSON 转义避免 Windows 文本模式 stdin 改写 UTF-8、CRLF 和控制字符。这个传输方案用少量延迟换取不依赖 FIFO、原生模块或 Rust。响应累计超过 64 MiB 后，下次请求触发引擎恢复；单帧上限 32 MiB。
 
 ## 顺序与恢复
 

@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { Session, isExact } from '../dist/index.js';
 const lua=process.env.RTEX_TEXLIVE_BIN ? path.join(process.env.RTEX_TEXLIVE_BIN,process.platform==='win32'?'lualatex.exe':'lualatex') : fs.existsSync('/Library/TeX/texbin/lualatex')?'/Library/TeX/texbin/lualatex':'lualatex';
 if(spawnSync(lua,['--version'],{encoding:'utf8'}).status!==0)throw new Error('Real TeX integration requires LuaLaTeX; this is not a passed or silently skipped check.');
-function waitFor(session,predicate,timeout=90000){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{off();reject(new Error('Timed out waiting for TeX event'))},timeout);const off=session.subscribe(event=>{if(predicate(event)){clearTimeout(timer);off();resolve(event)}})})}
+function waitFor(session,predicate,timeout=90000){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{off();reject(new Error('Timed out waiting for TeX event'))},timeout);const off=session.subscribe(event=>{if(event.event==='EngineState'&&event.state==='Failed'){clearTimeout(timer);off();reject(new Error(event.reason));}else if(predicate(event)){clearTimeout(timer);off();resolve(event)}})})}
 
 test('real LuaLaTeX: CJK/math live edits, multi-file buffers, TikZ fallback, clean export and close', {timeout:180000},async t=>{
  const root=fs.mkdtempSync(path.join((process.env.RUNNER_TEMP || os.tmpdir()),'rtex-ts-real-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));fs.mkdirSync(path.join(root,'chapters'));

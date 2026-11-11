@@ -28,3 +28,13 @@ test('balanced groups do not split at nested blank lines and incomplete source s
   assert.equal(splitSpans('\\begin{verbatim}\n\ncode\n\\end{verbatim}')[0].kind,'unsupported');
   assert.equal(splitSpans('Text {unfinished')[0].kind,'unsupported');
 });
+
+test('interior paragraph edits match full segmentation and preserve subsequent UTF-8/line offsets', async () => {
+  const { splitSpans, editSpans, minimalEdit } = await import('../dist/document.js');
+  const before = '\\documentclass{article}\n\\begin{document}\n中文 😀 one.\n\nTwo {nested\n\nlines}.\n\nThree.\n\\end{document}';
+  for (const next of [before.replace('one.', 'changed\nline 😀.'), before.replace('one.', 'a\n\nb'), before.replace('one.', '{unfinished'), before.replace('one.', '\\begin{verbatim}'), before.replace('中文', '% comment\n中文'), before.replace('one.', 'one.\n\\end{document}')]) {
+    const old = splitSpans(before, true), edit = minimalEdit(before, next);
+    const actual = editSpans(before, next, old, edit, true), expected = splitSpans(next, true);
+    assert.deepEqual(actual.map(({id,...s})=>s), expected.map(({id,...s})=>s));
+  }
+});

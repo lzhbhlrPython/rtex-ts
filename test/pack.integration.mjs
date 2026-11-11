@@ -9,6 +9,7 @@ try{
  fs.writeFileSync(path.join(temp,'package.json'),JSON.stringify({name:'pack-consumer',private:true,type:'module'}));
  run(npm,['install','--ignore-scripts','--offline','--no-audit','--no-fund',path.join(temp,pack.filename)],temp);
  assert.ok(!pack.files.some(file => /^(website|node_modules|build|artifacts)\//.test(file.path)), 'website and private build artifacts must not ship');
+ for (const file of pack.files.filter(file => /^dist\/.*\.js$/.test(file.path))) assert.ok(fs.existsSync(path.join(root, file.path.replace(/^dist\//,'src/').replace(/\.js$/,'.ts'))), 'stale compiled module: ' + file.path);
  const pkg=path.join(temp,'node_modules','rtex-ts');
  for(const file of ['dist/index.js','dist/index.d.ts','dist/cli.js','vendor/realtime-tex/tex/rtex-serve.lua','vendor/realtime-tex/LICENSE','vendor/realtime-tex/manifest.json','LICENSE','UPSTREAM.md','AGENTS.md','docs/embedding.zh-CN.md'])assert.ok(fs.existsSync(path.join(pkg,file)),file);
  fs.writeFileSync(path.join(temp,'check.mjs'),"import { Session, applyByteEdit } from 'rtex-ts';if(typeof Session.open!=='function'||applyByteEdit('你好',{start:0,end:3,text:'您'})!=='您好')throw Error('API import failed');");

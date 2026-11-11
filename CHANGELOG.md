@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+- Re-segment interior paragraph edits locally and maintain UTF-8/line offsets and stable IDs without quadratic scans. Structural edits retain full parsing.
+- Replace response-file polling with bounded streaming POSIX FIFOs / Windows named pipes.
+- Compile background/export driver files instead of passing TeX code through Windows argument quoting; improve missing-capture diagnostics.
+- Add reproducible latency benchmarks and differential segmentation / fragmented-frame tests.
+
 ## 0.1.1
 
 - Install background layouts atomically; failed artifacts and failed TeX passes retain the last valid layout.

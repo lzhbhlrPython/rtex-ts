@@ -75,3 +75,21 @@ test('JSON-lines bounds UTF-8 bytes before newline and preserves split character
   const iterator = jsonLines(backpressure()); await iterator.next();
   assert.equal(pulls, 1); await iterator.return();
 });
+
+test('a delayed live result cannot overwrite an edit-away-and-back revision', async t => {
+  const { session } = await fixture(t), span = session.spans('main.tex').find(s => s.kind === 'paragraph');
+  session.contexts.set(span.id, { file: 'main.tex', span, unit: { context: {}, placements: [] }, rows: [], verified: true, revision: 0 });
+  const releases = [], events = [];
+  session.subscribe(event => events.push(event));
+  session.engine = { close() {}, request(command) { if (command.op === 'context') return Promise.resolve({op:'ok'}); return new Promise(resolve => releases.push(() => resolve({op:'result', status:'ok', dl:drawing}))); } };
+  const base = session.documentText('main.tex');
+  session.setDocument('main.tex',base.replace('Hello','Hallo'));
+  await new Promise(resolve => setImmediate(resolve));
+  session.setDocument('main.tex',base.replace('Hello','Other'));
+  session.setDocument('main.tex',base.replace('Hello','Hallo'));
+  releases.shift()();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(events.filter(e=>e.event==='ParagraphUpdate'&&e.status==='ok').length,0);
+  releases.shift()(); await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(events.filter(e=>e.event==='ParagraphUpdate'&&e.status==='ok').map(e=>e.versions.source_revision),[3]);
+});
