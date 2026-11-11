@@ -1,6 +1,6 @@
 {
   "name": "rtex-ts",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Experimental TypeScript incremental LuaLaTeX sessions for Node.js, derived from realtime-tex",
   "type": "module",
   "license": "MIT",
@@ -9,7 +9,7 @@
     "type": "git",
     "url": "git+https://github.com/lzhbhlrPython/rtex-ts.git"
   },
-  "homepage": "https://github.com/lzhbhlrPython/rtex-ts#readme",
+  "homepage": "https://lzhbhlrpython.github.io/rtex-ts/",
   "bugs": "https://github.com/lzhbhlrPython/rtex-ts/issues",
   "engines": {
     "node": ">=22"

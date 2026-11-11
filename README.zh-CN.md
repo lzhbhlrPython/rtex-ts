@@ -2,7 +2,7 @@
 
 用 TypeScript 实现的实验性 Node.js 增量 LuaLaTeX 会话库。
 
-[English](README.md) · [嵌入指南](docs/embedding.zh-CN.md) · [架构](docs/architecture.zh-CN.md) · [上游代码与研究来源](UPSTREAM.md)
+[产品与文档站](https://lzhbhlrpython.github.io/rtex-ts/) · [English](README.md) · [嵌入指南](docs/embedding.zh-CN.md) · [架构](docs/architecture.zh-CN.md) · [上游代码与研究来源](UPSTREAM.md)
 
 **本项目高度参考 Henry Yang 及贡献者的 [realtime-tex](https://github.com/HenryXiaoYang/realtime-tex)。** Lua/TeX 运行层保留上游源码与 MIT 许可；实时段落排版技术来自 [Clemens Lode 的 TUG 2026 论文](https://www.tug.org/tug2026/preprints/lode-realtime.pdf)。这是独立、能力范围较小的 TypeScript 改写，不是上游官方发行版，也不宣称完整移植了所有功能。
 

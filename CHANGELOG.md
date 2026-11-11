@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6
+
+- Record successful Linux, macOS and Windows real LuaLaTeX integration and the Node 22/24/26 package matrix for 0.1.5. MiKTeX remains unverified.
+- Enable GitHub Pages for the bilingual bright-red Ant Design product/documentation site, independently of the npm archive.
+
 ## 0.1.5
 
 - Wait for owned TeX processes to exit before removing real-integration fixtures. Windows cleanup asserts the process list is empty and retries transient file locks asynchronously.

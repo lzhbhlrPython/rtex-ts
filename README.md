@@ -2,7 +2,7 @@
 
 Experimental incremental LuaLaTeX sessions for Node.js, implemented in TypeScript.
 
-[简体中文](README.zh-CN.md) · [Embedding guide](docs/embedding.md) · [Architecture](docs/architecture.md) · [Upstream and research credit](UPSTREAM.md)
+[Product and documentation site](https://lzhbhlrpython.github.io/rtex-ts/) · [简体中文](README.zh-CN.md) · [Embedding guide](docs/embedding.md) · [Architecture](docs/architecture.md) · [Upstream and research credit](UPSTREAM.md)
 
 **rtex-ts closely adapts [realtime-tex](https://github.com/HenryXiaoYang/realtime-tex) by Henry Yang and its contributors.** Its Lua/TeX runtime is retained from upstream under MIT. The technique follows [Clemens Lode's TUG 2026 paper](https://www.tug.org/tug2026/preprints/lode-realtime.pdf). This is an independent, narrower TypeScript adaptation, not an official upstream release or a feature-complete replacement.
 
